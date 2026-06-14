@@ -36,12 +36,23 @@ function logEvent(message, type = 'info') {
   console.log(`[${type.toUpperCase()}] ${message}`);
 }
 
-// 3. Uptime State variables
+// 3. Uptime State variables and Heartbeat History (30 minutes)
 let currentStatus = {
-  state: "Offline", // Starts as offline until established
+  state: "Down", // Starts as offline until established
   lastChecked: new Date().toISOString(),
   lastMessageReceived: null
 };
+
+const heartbeatHistory = [];
+// Pre-populate history with 30 gray "Pending" blocks with decreasing minute timestamps
+const nowMs = Date.now();
+for (let i = 29; i >= 0; i--) {
+  heartbeatHistory.push({
+    timestamp: new Date(nowMs - i * 60000).toISOString(),
+    state: "Pending"
+  });
+}
+
 
 // WebSocket tracking references
 let wsClient = null;
@@ -74,7 +85,7 @@ function connectAISStream() {
     wsClient = new WebSocket("wss://stream.aisstream.io/v0/stream");
   } catch (err) {
     logEvent(`Failed to instantiate WebSocket: ${err.message}`, "error");
-    currentStatus.state = "Offline";
+    currentStatus.state = "Down";
     currentStatus.lastChecked = new Date().toISOString();
     scheduleReconnect();
     return;
@@ -123,7 +134,7 @@ function connectAISStream() {
       logEvent("Receiving active live data stream!", "success");
     }
 
-    currentStatus.state = "Operational";
+    currentStatus.state = "Up";
 
     // Periodically log some ship info to show data is streaming in, but don't spam
     if (parsed && parsed.MetaData && Math.random() < 0.05) {
@@ -146,7 +157,7 @@ function connectAISStream() {
       currentStatus.state = "Auth Error";
     } else {
       logEvent("Connection dropped or unreachable.", "warning");
-      currentStatus.state = "Offline";
+      currentStatus.state = "Down";
     }
     
     currentStatus.lastChecked = new Date().toISOString();
@@ -189,9 +200,36 @@ function startSilenceCheck() {
   }, 2000);
 }
 
+/**
+ * Appends the current state into the rolling history array on the minute.
+ */
+function recordHeartbeat() {
+  const timestamp = new Date().toISOString();
+  heartbeatHistory.push({
+    timestamp,
+    state: currentStatus.state
+  });
+  if (heartbeatHistory.length > 30) {
+    heartbeatHistory.shift();
+  }
+}
+
+/**
+ * Schedules the heartbeat checker to run at the start of the next minute, and then every 60s.
+ */
+function startHeartbeatInterval() {
+  const now = new Date();
+  const delay = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
+  setTimeout(() => {
+    recordHeartbeat();
+    setInterval(recordHeartbeat, 60000);
+  }, delay);
+}
+
 // Start polling checks
 connectAISStream();
 startSilenceCheck();
+startHeartbeatInterval();
 
 // 4. HTTP API and Static Server
 const mimeTypes = {
@@ -219,7 +257,12 @@ const server = http.createServer((req, res) => {
   // API - Status Endpoint
   if (req.url === '/api/status' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(currentStatus));
+    res.end(JSON.stringify({
+      state: currentStatus.state,
+      lastChecked: currentStatus.lastChecked,
+      lastMessageReceived: currentStatus.lastMessageReceived,
+      history: heartbeatHistory
+    }));
     return;
   }
 

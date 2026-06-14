@@ -1,8 +1,8 @@
 // Config mapping for status states
 const STATE_CONFIGS = {
-  'Operational': {
-    className: 'state-operational',
-    badgeText: 'Operational',
+  'Up': {
+    className: 'state-up',
+    badgeText: 'Up',
     description: 'Connected and actively receiving live AIS messages from stream.aisstream.io.'
   },
   'Silent Failure': {
@@ -15,9 +15,9 @@ const STATE_CONFIGS = {
     badgeText: 'Auth Error',
     description: 'Connection rejected or closed by the server. Please verify your API Key is valid.'
   },
-  'Offline': {
-    className: 'state-offline',
-    badgeText: 'Offline',
+  'Down': {
+    className: 'state-down',
+    badgeText: 'Down',
     description: 'The monitoring daemon cannot reach the server, or the API server is down.'
   }
 };
@@ -28,11 +28,13 @@ const statusBadge = document.getElementById('status-badge');
 const statusText = document.getElementById('status-text');
 const statusDescription = document.getElementById('status-description');
 const lastCheckedEl = document.getElementById('last-checked');
+const heartbeatContainer = document.getElementById('heartbeat-container');
 
 const consoleToggle = document.getElementById('console-toggle');
 const consoleBody = document.getElementById('console-body');
 const toggleIndicator = document.getElementById('toggle-indicator');
 const logTerminal = document.getElementById('log-terminal');
+
 
 let logsInterval = null;
 let isLogsOpen = false;
@@ -69,6 +71,47 @@ function updateUI(state, lastChecked) {
 }
 
 /**
+ * Renders the heartbeat history bar.
+ * @param {Array} history - Array of { timestamp, state }
+ */
+function renderHeartbeat(history) {
+  if (!heartbeatContainer) return;
+  if (!history || history.length === 0) {
+    heartbeatContainer.innerHTML = '';
+    return;
+  }
+
+  heartbeatContainer.innerHTML = '';
+  history.forEach(item => {
+    const block = document.createElement('div');
+    // Replace space with dash for CSS class safety (e.g. "Silent Failure" -> "Silent-Failure")
+    const stateClass = (item.state || 'Pending').replace(/\s+/g, '-');
+    block.className = `heartbeat-block ${stateClass}`;
+
+    // Create custom styled tooltip
+    const tooltip = document.createElement('div');
+    tooltip.className = 'tooltip';
+
+    const stateSpan = document.createElement('span');
+    stateSpan.className = `tooltip-state ${stateClass}`;
+    stateSpan.textContent = item.state || 'Pending';
+
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'tooltip-time';
+    const dateObj = new Date(item.timestamp);
+    timeSpan.textContent = isNaN(dateObj.getTime()) 
+      ? 'Pending' 
+      : `${dateObj.toLocaleDateString()} ${dateObj.toLocaleTimeString()}`;
+
+    tooltip.appendChild(stateSpan);
+    tooltip.appendChild(timeSpan);
+    block.appendChild(tooltip);
+
+    heartbeatContainer.appendChild(block);
+  });
+}
+
+/**
  * Fetch status from the backend API
  */
 async function fetchStatus() {
@@ -79,10 +122,17 @@ async function fetchStatus() {
     }
     const data = await response.json();
     updateUI(data.state, data.lastChecked);
+    renderHeartbeat(data.history);
   } catch (error) {
     console.error('Failed to fetch status:', error);
     // If backend cannot be reached, the system monitor itself is offline
-    updateUI('Offline', new Date().toISOString());
+    updateUI('Down', new Date().toISOString());
+    // Pre-populate with red offline status if backend call fails
+    const offlineHistory = Array.from({ length: 30 }, (_, i) => ({
+      timestamp: new Date(Date.now() - (29 - i) * 60000).toISOString(),
+      state: 'Down'
+    }));
+    renderHeartbeat(offlineHistory);
   }
 }
 

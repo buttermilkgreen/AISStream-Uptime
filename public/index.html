@@ -1,19 +1,22 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Real-time uptime monitor for the aisstream.io community service. Check live status, connection errors, silent failures, and offline states.">
+  <meta name="description"
+    content="Real-time uptime monitor for the aisstream.io community service. Check live status, connection errors, silent failures, and down states.">
   <title>AISStream Uptime Monitor</title>
-  
+
   <!-- Premium Font -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
-  
+
   <!-- Stylesheet -->
   <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
   <div class="app-container">
     <header class="app-header">
@@ -30,12 +33,15 @@
         <div class="status-badge-wrapper">
           <div id="status-badge" class="status-badge">Checking...</div>
         </div>
-        
+
         <h2 id="status-text" class="status-text">Loading Status</h2>
         <p id="status-description" class="status-description">Connecting to local monitoring daemon...</p>
-        
+
+        <!-- Heartbeat Bar -->
+        <div id="heartbeat-container" class="heartbeat-container"></div>
+
         <div class="divider"></div>
-        
+
         <div class="meta-info">
           <div class="meta-item">
             <span class="meta-label">Endpoint</span>
@@ -55,7 +61,7 @@
           <div class="state-ref-card op">
             <span class="dot"></span>
             <div class="state-ref-info">
-              <strong>Operational</strong>
+              <strong>Up</strong>
               <p>Connected & actively receiving live AIS messages.</p>
             </div>
           </div>
@@ -76,7 +82,7 @@
           <div class="state-ref-card off">
             <span class="dot"></span>
             <div class="state-ref-info">
-              <strong>Offline</strong>
+              <strong>Down</strong>
               <p>AISStream server is down or unreachable.</p>
             </div>
           </div>
@@ -84,28 +90,29 @@
       </section>
     </main>
 
-      <!-- Console Log Drawer -->
-      <section class="console-drawer">
-        <button id="console-toggle" class="console-toggle">
-          <span class="console-title-wrapper">
-            <span class="terminal-icon">📟</span>
-            <span>Connection Logs</span>
-          </span>
-          <span id="toggle-indicator" class="toggle-indicator">Show</span>
-        </button>
-        <div id="console-body" class="console-body collapsed">
-          <div id="log-terminal" class="log-terminal">
-            <div class="log-entry system">-- Click show to initialize logs stream --</div>
-          </div>
+    <!-- Console Log Drawer -->
+    <section class="console-drawer">
+      <button id="console-toggle" class="console-toggle">
+        <span class="console-title-wrapper">
+          <span class="terminal-icon">📟</span>
+          <span>Connection Logs</span>
+        </span>
+        <span id="toggle-indicator" class="toggle-indicator">Show</span>
+      </button>
+      <div id="console-body" class="console-body collapsed">
+        <div id="log-terminal" class="log-terminal">
+          <div class="log-entry system">-- Click show to initialize logs stream --</div>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <footer class="app-footer">
-        <p>AISStream Uptime Monitor &bull; Active WebSocket Monitoring</p>
-      </footer>
+    <footer class="app-footer">
+      <p>AISStream Uptime Monitor &bull; Active WebSocket Monitoring</p>
+    </footer>
   </div>
 
   <!-- Script -->
   <script src="app.js"></script>
 </body>
+
 </html>
