@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Real-time uptime monitor for the aisstream.io community service. Check live status, connection errors, silent failures, and offline states.">
+  <title>AISStream Uptime Monitor</title>
+  
+  <!-- Premium Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+  
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="logo-area">
+        <span class="logo-icon">📡</span>
+        <h1>AISStream Uptime</h1>
+      </div>
+      <p class="subtitle">Real-time status monitoring for stream.aisstream.io</p>
+    </header>
+
+    <main class="status-container">
+      <!-- Status Card -->
+      <div id="status-card" class="status-card state-loading">
+        <div class="status-badge-wrapper">
+          <div id="status-badge" class="status-badge">Checking...</div>
+        </div>
+        
+        <h2 id="status-text" class="status-text">Loading Status</h2>
+        <p id="status-description" class="status-description">Connecting to local monitoring daemon...</p>
+        
+        <div class="divider"></div>
+        
+        <div class="meta-info">
+          <div class="meta-item">
+            <span class="meta-label">Endpoint</span>
+            <span class="meta-value font-mono">wss://stream.aisstream.io/v0/stream</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Last Checked</span>
+            <span id="last-checked" class="meta-value">Never</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- State Definitions Cheat-Sheet for Beginner Reference -->
+      <section class="reference-section">
+        <h3>Monitored States</h3>
+        <div class="states-grid">
+          <div class="state-ref-card op">
+            <span class="dot"></span>
+            <div class="state-ref-info">
+              <strong>Operational</strong>
+              <p>Connected & actively receiving live AIS messages.</p>
+            </div>
+          </div>
+          <div class="state-ref-card sf">
+            <span class="dot"></span>
+            <div class="state-ref-info">
+              <strong>Silent Failure</strong>
+              <p>Connected, but no messages received for 15+ seconds.</p>
+            </div>
+          </div>
+          <div class="state-ref-card auth">
+            <span class="dot"></span>
+            <div class="state-ref-info">
+              <strong>Auth Error</strong>
+              <p>Connection failed or closed due to invalid API key.</p>
+            </div>
+          </div>
+          <div class="state-ref-card off">
+            <span class="dot"></span>
+            <div class="state-ref-info">
+              <strong>Offline</strong>
+              <p>AISStream server is down or unreachable.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <p>AISStream Uptime Monitor &bull; Foundation Step 1</p>
+    </footer>
+  </div>
+
+  <!-- Script -->
+  <script src="app.js"></script>
+</body>
+</html>

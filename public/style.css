@@ -1,0 +1,372 @@
+/* Modern CSS Variables & Design Tokens */
+:root {
+  --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  
+  /* Color Palette - Sleek Dark Theme */
+  --bg-app: #0b0f19;
+  --bg-card: rgba(23, 32, 53, 0.65);
+  --border-color: rgba(255, 255, 255, 0.08);
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  
+  /* State Colors (Tailored HSL values for premium neon/glow feel) */
+  --color-operational: hsl(142, 76%, 45%);
+  --color-operational-bg: hsla(142, 76%, 45%, 0.1);
+  --color-operational-border: hsla(142, 76%, 45%, 0.25);
+  
+  --color-silent: hsl(38, 92%, 50%);
+  --color-silent-bg: hsla(38, 92%, 50%, 0.1);
+  --color-silent-border: hsla(38, 92%, 50%, 0.25);
+  
+  --color-auth: hsl(262, 83%, 58%);
+  --color-auth-bg: hsla(262, 83%, 58%, 0.1);
+  --color-auth-border: hsla(262, 83%, 58%, 0.25);
+  
+  --color-offline: hsl(350, 89%, 60%);
+  --color-offline-bg: hsla(350, 89%, 60%, 0.1);
+  --color-offline-border: hsla(350, 89%, 60%, 0.25);
+
+  --color-loading: hsl(210, 20%, 50%);
+  --color-loading-bg: hsla(210, 20%, 50%, 0.1);
+  --color-loading-border: hsla(210, 20%, 50%, 0.2);
+  
+  /* Transitions */
+  --transition-smooth: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Reset and Layout */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow-x: hidden;
+  background-image: 
+    radial-gradient(at 0% 0%, hsla(220, 100%, 15%, 0.5) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, hsla(240, 100%, 12%, 0.5) 0px, transparent 50%);
+}
+
+.app-container {
+  width: 100%;
+  max-width: 650px;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+/* Header */
+.app-header {
+  text-align: center;
+}
+
+.logo-area {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.logo-icon {
+  font-size: 2rem;
+  animation: pulse-slow 3s infinite ease-in-out;
+}
+
+.app-header h1 {
+  font-size: 2.25rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  background: linear-gradient(135deg, #ffffff 0%, #a5b4fc 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.subtitle {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  font-weight: 400;
+}
+
+/* Status Card - Premium Glassmorphism */
+.status-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+  padding: 2.5rem 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
+  transition: var(--transition-smooth);
+}
+
+.status-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 30px 50px -20px rgba(0, 0, 0, 0.7);
+}
+
+.status-badge-wrapper {
+  margin-bottom: 1.5rem;
+}
+
+.status-badge {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.5rem 1.25rem;
+  border-radius: 9999px;
+  transition: var(--transition-smooth);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.status-badge::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  animation: beacon 1.5s infinite ease-in-out;
+}
+
+.status-text {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  transition: var(--transition-smooth);
+}
+
+.status-description {
+  color: var(--text-secondary);
+  font-size: 1rem;
+  max-width: 80%;
+  line-height: 1.5;
+  margin-bottom: 2rem;
+}
+
+.divider {
+  width: 100%;
+  height: 1px;
+  background: var(--border-color);
+  margin-bottom: 1.5rem;
+}
+
+.meta-info {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.meta-item {
+  flex: 1;
+  min-width: 140px;
+  text-align: left;
+}
+
+.meta-label {
+  display: block;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 0.25rem;
+}
+
+.meta-value {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.font-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+/* State Styling Adaptations */
+
+/* 1. Operational State */
+.state-operational {
+  border-color: var(--color-operational-border);
+  box-shadow: 0 20px 40px -15px hsla(142, 76%, 15%, 0.4);
+}
+.state-operational .status-badge {
+  background-color: var(--color-operational-bg);
+  color: var(--color-operational);
+  border: 1px solid var(--color-operational-border);
+}
+.state-operational .status-badge::before {
+  background-color: var(--color-operational);
+}
+.state-operational .status-text {
+  color: var(--color-operational);
+}
+
+/* 2. Silent Failure State */
+.state-silent {
+  border-color: var(--color-silent-border);
+  box-shadow: 0 20px 40px -15px hsla(38, 92%, 15%, 0.4);
+}
+.state-silent .status-badge {
+  background-color: var(--color-silent-bg);
+  color: var(--color-silent);
+  border: 1px solid var(--color-silent-border);
+}
+.state-silent .status-badge::before {
+  background-color: var(--color-silent);
+}
+.state-silent .status-text {
+  color: var(--color-silent);
+}
+
+/* 3. Auth Error State */
+.state-auth {
+  border-color: var(--color-auth-border);
+  box-shadow: 0 20px 40px -15px hsla(262, 83%, 15%, 0.4);
+}
+.state-auth .status-badge {
+  background-color: var(--color-auth-bg);
+  color: var(--color-auth);
+  border: 1px solid var(--color-auth-border);
+}
+.state-auth .status-badge::before {
+  background-color: var(--color-auth);
+}
+.state-auth .status-text {
+  color: var(--color-auth);
+}
+
+/* 4. Offline State */
+.state-offline {
+  border-color: var(--color-offline-border);
+  box-shadow: 0 20px 40px -15px hsla(350, 89%, 15%, 0.4);
+}
+.state-offline .status-badge {
+  background-color: var(--color-offline-bg);
+  color: var(--color-offline);
+  border: 1px solid var(--color-offline-border);
+}
+.state-offline .status-badge::before {
+  background-color: var(--color-offline);
+}
+.state-offline .status-text {
+  color: var(--color-offline);
+}
+
+/* Loading State */
+.state-loading .status-badge {
+  background-color: var(--color-loading-bg);
+  color: var(--color-loading);
+  border: 1px solid var(--color-loading-border);
+}
+.state-loading .status-badge::before {
+  background-color: var(--color-loading);
+}
+
+/* Reference Section for beginner */
+.reference-section {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  padding: 1.5rem;
+}
+
+.reference-section h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.states-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+@media (min-width: 480px) {
+  .states-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.state-ref-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  transition: var(--transition-smooth);
+}
+
+.state-ref-card:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.state-ref-card .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 0.35rem;
+  flex-shrink: 0;
+}
+
+.state-ref-card.op .dot { background-color: var(--color-operational); }
+.state-ref-card.sf .dot { background-color: var(--color-silent); }
+.state-ref-card.auth .dot { background-color: var(--color-auth); }
+.state-ref-card.off .dot { background-color: var(--color-offline); }
+
+.state-ref-info strong {
+  font-size: 0.85rem;
+  display: block;
+  color: var(--text-primary);
+  margin-bottom: 0.15rem;
+}
+
+.state-ref-info p {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+/* Footer */
+.app-footer {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+
+/* Animations */
+@keyframes beacon {
+  0% { transform: scale(0.9); opacity: 0.6; }
+  50% { transform: scale(1.25); opacity: 1; box-shadow: 0 0 8px currentColor; }
+  100% { transform: scale(0.9); opacity: 0.6; }
+}
+
+@keyframes pulse-slow {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
