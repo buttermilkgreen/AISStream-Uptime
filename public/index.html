@@ -84,9 +84,25 @@
       </section>
     </main>
 
-    <footer class="app-footer">
-      <p>AISStream Uptime Monitor &bull; Foundation Step 1</p>
-    </footer>
+      <!-- Console Log Drawer -->
+      <section class="console-drawer">
+        <button id="console-toggle" class="console-toggle">
+          <span class="console-title-wrapper">
+            <span class="terminal-icon">📟</span>
+            <span>Connection Logs</span>
+          </span>
+          <span id="toggle-indicator" class="toggle-indicator">Show</span>
+        </button>
+        <div id="console-body" class="console-body collapsed">
+          <div id="log-terminal" class="log-terminal">
+            <div class="log-entry system">-- Click show to initialize logs stream --</div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="app-footer">
+        <p>AISStream Uptime Monitor &bull; Active WebSocket Monitoring</p>
+      </footer>
   </div>
 
   <!-- Script -->
