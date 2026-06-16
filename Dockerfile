@@ -27,6 +27,9 @@ ENV PORT=3000
 # Expose the application port
 EXPOSE 3000
 
+# Create the data directory explicitly in the image
+RUN mkdir -p /usr/src/app/data
+
 # Force the app directory to be owned by the internal node user
 RUN chown -R node:node /usr/src/app
 USER node
