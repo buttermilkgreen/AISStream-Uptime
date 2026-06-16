@@ -1,5 +1,12 @@
-# Use the official Node.js 20 LTS base image (Debian-based, matching the host OS)
-FROM node:20-slim
+# Use the exact match for your local working version
+FROM node:20.20.2-slim
+
+# Install temporary build tools required to compile native C++ addons like sqlite3
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory in the container
 WORKDIR /usr/src/app
@@ -7,8 +14,8 @@ WORKDIR /usr/src/app
 # Copy application manifests
 COPY package*.json ./
 
-# Install production dependencies
-RUN npm ci --omit=dev
+# Install production dependencies and force a custom build of the sqlite3 binary
+RUN npm ci --omit=dev --build-from-source=sqlite3
 
 # Copy the application source code
 COPY . .
