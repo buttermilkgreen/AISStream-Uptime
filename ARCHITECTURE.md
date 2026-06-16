@@ -1,0 +1,160 @@
+# AISStream Uptime Monitor - Architecture Documentation
+
+This document describes the design, system flow, data models, and error handling architecture of the **AISStream Uptime Monitor**.
+
+---
+
+## 1. System Overview
+
+The AISStream Uptime Monitor is a lightweight, low-dependency tool designed to monitor the reliability of the live AIS WebSocket stream at `stream.aisstream.io`. It is structured as a two-tier application:
+
+```mermaid
+graph TD
+    subgraph Client (Frontend)
+        A[HTML5 Dashboard] <-->|HTTP API / Static Files| B(app.js & style.css)
+    end
+    subgraph Server (Backend)
+        C[HTTP & API Server] <-->|Reads/Writes| D[(SQLite: uptime.db)]
+        E[Uptime Daemon] -->|Monitors| F[stream.aisstream.io]
+        E -->|Logs Incidents| D
+        C <-->|Retrieves Status & Logs| E
+    end
+```
+
+---
+
+## 2. Server Architecture (`server.js`)
+
+The backend is built in pure Node.js without heavy frameworks (e.g., Express) to remain fast and portable. Its components are:
+
+* **Static File Server**: Delivers the static assets located in the `/public` folder.
+* **HTTP API Endpoints**:
+  * `GET /api/status`: Returns current system status state, last checked timestamps, rolling 30-minute heartbeat history, plus `devMode` and `simulated` simulation flags.
+  * `GET /api/logs`: Returns the 50 most recent console log messages stored in memory.
+  * `GET /api/incidents`: Query historical incidents and active outages ordered reverse-chronologically (`start_time DESC`).
+  * `POST /api/test/simulate` (DEV mode only): Simulates manual state transitions (e.g. `Down`, `Silent Failure`, `Auth Error`, `Up`) with optional custom error message payloads.
+  * `POST /api/test/resume` (DEV mode only): Clears simulated state and resumes live monitoring of `stream.aisstream.io`.
+* **WebSocket Client**: Establishes a persistent connection to `wss://stream.aisstream.io/v0/stream`, subscribes to shipping vessel position reports in a defined geographical bounding box, and monitors stream state.
+* **Uptime State Machine**: Evaluates current health against five monitored states:
+  * **Pending**: Initial startup state before a connection attempt completes.
+  * **Up**: Connected to WebSocket and receiving live data messages.
+  * **Silent Failure**: WebSocket is open, but no ship messages have arrived for 15+ seconds.
+  * **Auth Error**: WebSocket connection rejected due to credentials/API key failure.
+  * **Down**: WebSocket connection dropped or host unreachable (DNS, socket timeout, etc.).
+
+### 2.1 Error Interpretation
+The server includes a translation layer `interpretError(detailsObj)` that scans raw errors (e.g. status codes, socket flags) and produces a human-friendly description:
+- **WebSocket 1008**: *"Authentication failure: Invalid or expired API Key"*
+- **HTTP 502/503/504**: Translated to friendly Gateway/Overload states (e.g., *"Server Overloaded (503)"*)
+- **ENOTFOUND / ETIMEDOUT / ECONNREFUSED**: Translated to readable local connection or timeout failures.
+
+### 2.2 Flapping Outage Coalescing (Flap Protection)
+To prevent creating separate, fragmented incident records when a connection fluctuates rapidly (e.g. going Down -> Up for 10s -> Down again), the backend enforces a **120-second coalescing window**:
+1. When a new failure occurs, the server queries the database for the most recent incident.
+2. If that incident was resolved **less than 120 seconds ago**, the server deletes the resolution timestamp (re-opens the incident) and appends the new failure details to its existing timeline events.
+3. If the server transitions *directly* between different failure states (e.g. `Down` -> `Auth Error` -> `Silent Failure`), the active incident's database type is updated to `Instability` while retaining the single continuous incident entry.
+
+---
+
+## 3. Database Schema & Incident Timeline
+
+All downtime windows are tracked persistently using SQLite (`uptime.db`) via the `sqlite3` driver.
+
+### Database Table: `incidents`
+
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `INTEGER` | Primary key (Auto-incremented) |
+| `start_time` | `TEXT` | ISO-8601 Timestamp of outage start |
+| `end_time` | `TEXT` | ISO-8601 Timestamp of outage resolution (Null if ongoing) |
+| `outage_type` | `TEXT` | State type: `Down`, `Silent Failure`, or `Auth Error` |
+| `details` | `TEXT` | Structured JSON containing error event logs and raw diagnostics |
+
+### Incident Timeline JSON Structure (`details`)
+To track how errors mutate during a single outage (e.g., transitioning from a network drop to successive connection timeouts), the `details` field is stored as a structured timeline payload:
+
+```json
+{
+  "summary": "Connection dropped or unreachable: getaddrinfo ENOTFOUND stream.aisstream.io",
+  "errors": [
+    {
+      "timestamp": "2026-06-16T19:10:00.000Z",
+      "type": "Down",
+      "message": "Connection dropped or unreachable. Code: 1006, Reason: Abnormal closure",
+      "raw": {
+        "code": 1006,
+        "reason": "Abnormal closure",
+        "socketError": null
+      }
+    },
+    {
+      "timestamp": "2026-06-16T19:10:10.000Z",
+      "type": "Down",
+      "message": "Connection dropped or unreachable: getaddrinfo ENOTFOUND stream.aisstream.io",
+      "raw": {
+        "code": 1006,
+        "reason": "None",
+        "socketError": {
+          "message": "getaddrinfo ENOTFOUND stream.aisstream.io",
+          "code": "ENOTFOUND"
+        }
+      }
+    }
+  ]
+}
+```
+
+---
+
+## 4. Frontend Architecture
+
+The frontend is a single-page app built using semantic HTML5, Vanilla JavaScript, and flexible CSS.
+
+* **Status Banner**: Located at the top of the viewport. It dynamically changes colors, icons, and descriptions based on the overall system health state returned by `/api/status`. If in simulation mode, it renders a warning indicator overlay.
+* **Heartbeat Bar**: A rolling grid of 30 blocks representing the status for each of the last 30 minutes. Hovering over a block displays a tooltipped snapshot of status and timestamp.
+* **Console Terminal**: A slide-out drawer that polls `/api/logs` every 2 seconds, displaying color-coded daemon operations (successes, socket errors, connection schedules) in a terminal-like environment.
+* **Incidents feed**:
+  * Displays history grouped by the last 4 calendar months.
+  * Truncates long summary text descriptions in the main feed and detailed timeline event logs to 140 characters, while retaining the full unabridged event log text exclusively inside the raw inspect pre block.
+  * Supports interactive timelines with a **reverse-chronological event sorting** flow, placing the newest error occurrences at the top.
+  * Preserves UI drawer state: Prior to periodic data poll cycles, the application caches the expanded/collapsed state of each `.timeline-drawer` and `.timeline-raw-container` ID, restoring their visibility classes automatically on DOM re-renders.
+  * Includes a **Raw Response Inspector**: Clicking the `</>` SVG icon expands a formatted dark code container containing the raw JSON object. The text wraps naturally (`white-space: pre-wrap` and `word-break: break-all`) to accommodate smaller screen viewports, allowing developers to copy the full string to their clipboard.
+* **Developer Simulation HUD**: Appears only in development environments (`NODE_ENV=DEV` or `DEV=true`). Allows triggering simulated outages, inputting simulated raw error text, and reverting back to live tracking.
+
+---
+
+## 5. Dependency Management & Native Modules
+
+To keep the project lightweight and fast, direct runtime dependencies are minimized:
+
+* **`ws`** (`^8.21.0`): The WebSocket engine used to communicate with the `aisstream.io` server.
+* **`sqlite3`** (`^6.0.1`): The database driver used to persist outage incidents.
+
+### Transitive and Native Modules
+While only two dependencies are declared in `package.json`, installing them downloads nested (transitive) helper packages in `node_modules`:
+
+1. **Native Compilation & OS Bindings**:
+   * `sqlite3` requires compiling native C++ database bindings for the host OS (macOS).
+   * Utilities like **`bindings`**, **`napi-build-utils`**, and **`detect-libc`** are loaded to manage and interface with the compiled C++ SQLite binary directly in Node.js.
+2. **Buffer and Stream Processing Utilities**:
+   * Packages such as **`bl`** (Buffer List), **`buffer`**, and **`base64-js`** provide cross-platform stream handling.
+   * **`minipass`** and **`graceful-fs`** manage high-performance, error-resilient filesystem I/O for database operations.
+
+---
+
+## 6. Simulation & Testing Subsystem
+
+To test the application's response to outages without relying on actual service disruptions, a test system is built directly into the codebase.
+
+### Gating & Environment Configuration
+The simulation subsystem is restricted to local development environments. It is controlled via standard environment variables defined in `.env`:
+* **`NODE_ENV=DEV`** or **`DEV=true`**: Activates simulation mode. The backend enables test-only endpoints and exposes the `devMode` status flag to the client.
+* **Production / Normal mode**: Simulation routes are locked (`403 Forbidden` response), and the Developer HUD is completely hidden from the UI.
+
+### Live Monitor Suspension
+When a simulation begins (`simulatedModeActive === true`):
+1. **WS Message Bypass:** Live incoming data messages from `stream.aisstream.io` are ignored and will not transition the system state back to `Up`.
+2. **Silence Check Bypass:** The periodic silence check daemon is suspended, preventing it from overriding the manually set simulated state.
+3. **Restoring Live Stream:** When the developer clicks **Resume Live Monitor**, the simulation flag resets, and the server establishes a fresh WebSocket connection, restoring standard uptime checks.
+
+

@@ -20,6 +20,7 @@
   },
   "homepage": "https://github.com/buttermilkgreen/AISStream-Uptime#readme",
   "dependencies": {
+    "sqlite3": "^6.0.1",
     "ws": "^8.21.0"
   }
 }

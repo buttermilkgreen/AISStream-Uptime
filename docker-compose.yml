@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  uptime-monitor:
+    build: .
+    container_name: aisstream-uptime-monitor
+    restart: always
+    ports:
+      # Expose port 3000 of the container to port 3000 on the host Proxmox VM/LXC
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # Pass the API key from the host environment or a .env file located next to docker-compose.yml
+      - AISSTREAM_API_KEY=${AISSTREAM_API_KEY}
+    volumes:
+      # Persist SQLite database. Mounts the local uptime.db file into the container.
+      # Note: Ensure that 'uptime.db' exists on the host machine (even if empty) before running 
+      # 'docker compose up' so Docker does not auto-create a directory with that name.
+      - ./uptime.db:/usr/src/app/uptime.db

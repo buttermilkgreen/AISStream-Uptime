@@ -19,44 +19,86 @@
 
 <body>
   <div class="app-container">
+    <!-- Header with Left Title and Right Buttons -->
     <header class="app-header">
       <div class="logo-area">
-        <span class="logo-icon">📡</span>
-        <h1>AISStream Uptime</h1>
+        <h1>AIS Stream Uptime</h1>
       </div>
-      <p class="subtitle">Real-time status monitoring for stream.aisstream.io</p>
+      <div class="header-buttons">
+        <a href="#" class="btn" id="btn-subscribe">Subscribe</a>
+        <a href="#" class="btn" id="btn-support">Support</a>
+      </div>
     </header>
 
-    <main class="status-container">
-      <!-- Status Card -->
-      <div id="status-card" class="status-card state-loading">
-        <div class="status-badge-wrapper">
-          <div id="status-badge" class="status-badge">Checking...</div>
-        </div>
-
-        <h2 id="status-text" class="status-text">Loading Status</h2>
-        <p id="status-description" class="status-description">Connecting to local monitoring daemon...</p>
-
-        <!-- Heartbeat Bar -->
-        <div id="heartbeat-container" class="heartbeat-container"></div>
-
-        <div class="divider"></div>
-
-        <div class="meta-info">
-          <div class="meta-item">
-            <span class="meta-label">Endpoint</span>
-            <span class="meta-value font-mono">wss://stream.aisstream.io/v0/stream</span>
+    <main style="display: flex; flex-direction: column; gap: 1.75rem;">
+      <!-- Dynamic Status Banner (Top level status section) -->
+      <div id="status-banner" class="status-banner state-loading">
+        <div class="status-banner-header">
+          <div class="status-icon-wrapper" id="status-banner-icon">
+            <svg class="icon-check-circle" viewBox="0 0 20 20" fill="currentColor" style="width: 22px; height: 22px;">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l5-5z" clip-rule="evenodd" />
+            </svg>
           </div>
-          <div class="meta-item">
-            <span class="meta-label">Last Checked</span>
-            <span id="last-checked" class="meta-value">Never</span>
+          <div id="status-banner-title" class="status-title">Checking Status...</div>
+        </div>
+        <div class="status-banner-body">
+          <div id="status-banner-desc" class="status-desc">Connecting to local monitoring daemon...</div>
+        </div>
+      </div>
+
+      <!-- Developer Simulation HUD (Visible only when in devMode) -->
+      <div id="developer-hud" class="dev-hud-card" style="display: none;">
+        <div class="hud-header">
+          <div class="hud-title-area">
+            <span class="hud-icon">🛠️</span>
+            <h3>Developer Simulation Control</h3>
+          </div>
+          <span id="simulation-badge" class="sim-badge" style="display: none;">Simulation Active</span>
+        </div>
+        <div class="hud-body">
+          <div class="hud-field">
+            <label for="sim-error-payload">WebSocket Error / Details Payload (Optional)</label>
+            <textarea id="sim-error-payload" placeholder="e.g. Host unreachable, or raw JSON like: {&quot;message&quot;: &quot;Auth failed&quot;, &quot;raw&quot;: {&quot;code&quot;: 1008}}"></textarea>
+          </div>
+          <div class="hud-actions-grid">
+            <button type="button" class="hud-btn btn-up" data-state="Up">Simulate Up</button>
+            <button type="button" class="hud-btn btn-sf" data-state="Silent Failure">Simulate Silent Failure</button>
+            <button type="button" class="hud-btn btn-auth" data-state="Auth Error">Simulate Auth Error</button>
+            <button type="button" class="hud-btn btn-down" data-state="Down">Simulate Down</button>
+          </div>
+          <div class="hud-footer">
+            <button type="button" id="btn-resume-live" class="hud-btn btn-resume">Resume Live Monitor</button>
           </div>
         </div>
       </div>
 
-      <!-- State Definitions Cheat-Sheet for Beginner Reference -->
+      <!-- Dashboard/Uptime Component Card -->
+      <div class="dashboard-card">
+        <div class="component-header">
+          <span class="component-name">WebSocket stream.aisstream.io</span>
+          <span id="component-status" class="component-status-text Loading">Checking</span>
+        </div>
+        
+        <!-- Heartbeat Container (Minute-by-minute status) -->
+        <div id="heartbeat-container" class="heartbeat-container"></div>
+        
+        <div class="uptime-meta">
+          <span>wss://stream.aisstream.io/v0/stream</span>
+          <span>Last checked: <span id="last-checked">Never</span></span>
+        </div>
+      </div>
+
+      <!-- Incident History Section -->
+      <section class="history-section">
+        <h2 class="history-title">History</h2>
+        <div id="history-container">
+          <!-- Dynamically populated via JS -->
+        </div>
+      </section>
+
+      <!-- Monitored States reference section -->
       <section class="reference-section">
-        <h3>Monitored States</h3>
+        <h3>Monitored States Reference</h3>
         <div class="states-grid">
           <div class="state-ref-card op">
             <span class="dot"></span>

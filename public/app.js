@@ -2,43 +2,67 @@
 const STATE_CONFIGS = {
   'Up': {
     className: 'state-up',
-    badgeText: 'Up',
-    description: 'Connected and actively receiving live AIS messages from stream.aisstream.io.'
+    statusTitle: "We're fully operational",
+    description: "We're not aware of any issues affecting our systems.",
+    badgeText: 'Operational',
+    iconHtml: `
+      <svg class="icon-check-circle" viewBox="0 0 20 20" fill="currentColor" style="width: 22px; height: 22px; color: #10b981;">
+        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l5-5z" clip-rule="evenodd" />
+      </svg>
+    `
   },
   'Silent Failure': {
     className: 'state-silent',
+    statusTitle: 'Partial Outage',
+    description: 'The WebSocket connection is open, but no messages have arrived in the last 15 seconds.',
     badgeText: 'Silent Failure',
-    description: 'The WebSocket connection is open, but no messages have arrived in the last 15 seconds.'
+    iconHtml: `
+      <svg class="icon-warning" viewBox="0 0 20 20" fill="currentColor" style="width: 22px; height: 22px; color: #f59e0b;">
+        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+      </svg>
+    `
   },
   'Auth Error': {
     className: 'state-auth',
+    statusTitle: 'Configuration Alert',
+    description: 'Connection rejected or closed by the server. Please verify your API Key is valid.',
     badgeText: 'Auth Error',
-    description: 'Connection rejected or closed by the server. Please verify your API Key is valid.'
+    iconHtml: `
+      <svg class="icon-warning" viewBox="0 0 20 20" fill="currentColor" style="width: 22px; height: 22px; color: #8b5cf6;">
+        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+      </svg>
+    `
   },
   'Down': {
     className: 'state-down',
-    badgeText: 'Down',
-    description: 'The monitoring daemon cannot reach the server, or the API server is down.'
+    statusTitle: 'Major Outage',
+    description: 'The monitoring daemon cannot reach the server, or the API server is down.',
+    badgeText: 'Major Outage',
+    iconHtml: `
+      <svg class="icon-error" viewBox="0 0 20 20" fill="currentColor" style="width: 22px; height: 22px; color: #ef4444;">
+        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+      </svg>
+    `
   }
 };
 
 // DOM Elements
-const statusCard = document.getElementById('status-card');
-const statusBadge = document.getElementById('status-badge');
-const statusText = document.getElementById('status-text');
-const statusDescription = document.getElementById('status-description');
+const statusBanner = document.getElementById('status-banner');
+const statusBannerIcon = document.getElementById('status-banner-icon');
+const statusBannerTitle = document.getElementById('status-banner-title');
+const statusBannerDesc = document.getElementById('status-banner-desc');
+const componentStatus = document.getElementById('component-status');
 const lastCheckedEl = document.getElementById('last-checked');
 const heartbeatContainer = document.getElementById('heartbeat-container');
+const historyContainer = document.getElementById('history-container');
 
 const consoleToggle = document.getElementById('console-toggle');
 const consoleBody = document.getElementById('console-body');
 const toggleIndicator = document.getElementById('toggle-indicator');
 const logTerminal = document.getElementById('log-terminal');
 
-
 let logsInterval = null;
 let isLogsOpen = false;
-let lastLogTimestamp = '';
 
 /**
  * Update the UI based on the returned or calculated state.
@@ -48,19 +72,26 @@ let lastLogTimestamp = '';
 function updateUI(state, lastChecked) {
   const config = STATE_CONFIGS[state] || {
     className: 'state-loading',
-    badgeText: state,
-    description: 'Current system status is undergoing verification.'
+    statusTitle: 'Checking Status...',
+    description: 'Current system status is undergoing verification.',
+    badgeText: 'Checking',
+    iconHtml: `
+      <svg class="animate-spin" viewBox="0 0 24 24" fill="none" style="width: 22px; height: 22px; color: #6b7280;">
+        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" style="opacity: 0.25;"></circle>
+        <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+    `
   };
 
-  // Reset existing state classes
-  statusCard.className = 'status-card';
-  // Add new state class
-  statusCard.classList.add(config.className);
+  // Update Status Banner
+  statusBanner.className = `status-banner ${config.className}`;
+  statusBannerIcon.innerHTML = config.iconHtml;
+  statusBannerTitle.textContent = config.statusTitle;
+  statusBannerDesc.textContent = config.description;
 
-  // Update text elements
-  statusBadge.textContent = config.badgeText;
-  statusText.textContent = state;
-  statusDescription.textContent = config.description;
+  // Update Component Status Text
+  componentStatus.className = `component-status-text ${state.replace(/\s+/g, '-')}`;
+  componentStatus.textContent = config.badgeText;
   
   if (lastChecked) {
     const timeString = new Date(lastChecked).toLocaleTimeString();
@@ -84,7 +115,6 @@ function renderHeartbeat(history) {
   heartbeatContainer.innerHTML = '';
   history.forEach(item => {
     const block = document.createElement('div');
-    // Replace space with dash for CSS class safety (e.g. "Silent Failure" -> "Silent-Failure")
     const stateClass = (item.state || 'Pending').replace(/\s+/g, '-');
     block.className = `heartbeat-block ${stateClass}`;
 
@@ -112,6 +142,283 @@ function renderHeartbeat(history) {
 }
 
 /**
+ * Renders the incident history dynamically.
+ * @param {Array} incidents - Array of incident objects from SQLite database
+ */
+function renderIncidentHistory(incidents) {
+  if (!historyContainer) return;
+  
+  // 1. Capture currently open drawers/raw containers before rewriting the innerHTML
+  const activeTimelineDrawers = new Set(
+    Array.from(document.querySelectorAll('.timeline-drawer:not(.collapsed)')).map(el => el.id)
+  );
+  const activeRawContainers = new Set(
+    Array.from(document.querySelectorAll('.timeline-raw-container:not(.collapsed)')).map(el => el.id)
+  );
+
+  historyContainer.innerHTML = '';
+
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const today = new Date();
+  const targetMonths = [];
+
+  // Initialize the list for the last 4 calendar months
+  for (let i = 0; i < 4; i++) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    targetMonths.push({
+      monthIndex: d.getMonth(),
+      year: d.getFullYear(),
+      monthName: monthNames[d.getMonth()],
+      incidents: []
+    });
+  }
+
+  // Helper to escape HTML characters
+  function escapeHtml(text) {
+    if (typeof text !== 'string') return JSON.stringify(text);
+    return text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  // Populate incidents into target months
+  incidents.forEach(inc => {
+    const start = new Date(inc.start_time);
+    if (isNaN(start.getTime())) return;
+
+    const match = targetMonths.find(m => m.monthIndex === start.getMonth() && m.year === start.getFullYear());
+    if (match) {
+      const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const dayNum = String(start.getDate()).padStart(2, '0');
+      const dayName = days[start.getDay()];
+
+      let title = `${inc.outage_type} Outage`;
+      let description = "No further details logged.";
+      let errorsTimeline = null;
+      if (inc.details) {
+        try {
+          const parsed = JSON.parse(inc.details);
+          if (parsed) {
+            if (parsed.errors && Array.isArray(parsed.errors)) {
+              errorsTimeline = parsed.errors;
+              if (errorsTimeline.length > 0) {
+                description = errorsTimeline[errorsTimeline.length - 1].message;
+              }
+            } else if (parsed.message) {
+              description = parsed.message;
+            }
+          }
+        } catch (e) {}
+      }
+
+      let timeText = "";
+      const isOngoing = !inc.end_time;
+      if (isOngoing) {
+        timeText = "Ongoing";
+      } else {
+        const end = new Date(inc.end_time);
+        const diffMins = Math.round((end - start) / 60000);
+        if (diffMins < 1) {
+          timeText = "< 1m";
+        } else if (diffMins < 60) {
+          timeText = `${diffMins}m outage`;
+        } else {
+          const hours = Math.floor(diffMins / 60);
+          const mins = diffMins % 60;
+          timeText = `${hours}h ${mins}m outage`;
+        }
+      }
+
+      // Truncate the main view description to 140 characters
+      const displayDescription = description.length > 140 ? description.substring(0, 137) + "..." : description;
+
+      match.incidents.push({
+        id: inc.id,
+        dayNum,
+        dayName,
+        title,
+        description: displayDescription,
+        time: timeText,
+        isOngoing,
+        outageType: inc.outage_type,
+        timeline: errorsTimeline
+      });
+    }
+  });
+
+  targetMonths.forEach(item => {
+    const monthBlock = document.createElement('div');
+    monthBlock.className = 'history-month-block';
+    
+    if (item.incidents.length === 0) {
+      monthBlock.innerHTML = `
+        <div class="month-no-incidents">
+          <span class="month-name">${item.monthName}</span>
+          <span class="no-incidents-status">
+            <svg class="icon-check-circle" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l5-5z" clip-rule="evenodd" />
+            </svg>
+            No incidents reported
+          </span>
+        </div>
+      `;
+    } else {
+      let incidentsHtml = `<h3 class="month-header">${item.monthName}</h3>`;
+      item.incidents.forEach(inc => {
+        const rowClass = `incident-row ${inc.outageType.replace(/\s+/g, '-')} ${inc.isOngoing ? 'ongoing' : ''}`;
+        
+        let timelineHtml = "";
+        if (inc.timeline && inc.timeline.length > 0) {
+          const drawerId = `timeline-drawer-${inc.id}`;
+          const isDrawerExpanded = activeTimelineDrawers.has(drawerId);
+          const drawerClass = isDrawerExpanded ? "timeline-drawer" : "timeline-drawer collapsed";
+          const btnClass = isDrawerExpanded ? "btn-timeline-toggle expanded" : "btn-timeline-toggle";
+          const btnText = isDrawerExpanded ? "Hide detailed timeline" : `Show detailed timeline (${inc.timeline.length} events)`;
+
+          // Reverse timeline events so most recent is at the top
+          const reversedTimelineEvents = inc.timeline.map((event, index) => ({ event, index })).reverse();
+
+          timelineHtml = `
+            <div class="timeline-toggle-wrapper">
+              <button class="${btnClass}" onclick="toggleTimeline(${inc.id})">
+                <svg viewBox="0 0 20 20" fill="currentColor" class="icon-chevron">
+                  <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+                <span>${btnText}</span>
+              </button>
+            </div>
+            <div id="${drawerId}" class="${drawerClass}">
+              <div class="timeline-events">
+                ${reversedTimelineEvents.map(({ event, index }) => {
+                  const eventTime = new Date(event.timestamp).toLocaleTimeString();
+                  const rawJson = JSON.stringify(event.raw || event, null, 2);
+                  const containerId = `timeline-raw-container-${inc.id}-${index}`;
+                  const isRawExpanded = activeRawContainers.has(containerId);
+                  const rawClass = isRawExpanded ? "timeline-raw-container" : "timeline-raw-container collapsed";
+
+                  const rawMessage = event.message || 'No description';
+                  const displayMessage = rawMessage.length > 140 ? rawMessage.substring(0, 137) + '...' : rawMessage;
+
+                  return `
+                    <div class="timeline-event-item">
+                      <div class="timeline-event-dot ${event.type.replace(/\s+/g, '-')}"></div>
+                      <div class="timeline-event-body">
+                        <div class="timeline-event-header">
+                          <span class="timeline-event-time">${eventTime}</span>
+                          <span class="timeline-event-type-badge ${event.type.replace(/\s+/g, '-')}">${event.type}</span>
+                        </div>
+                        <div class="timeline-event-msg">${escapeHtml(displayMessage)}</div>
+                        
+                        <div class="raw-toggle-wrapper">
+                          <button class="btn-raw-toggle" onclick="toggleRaw(${inc.id}, ${index})" title="Inspect Raw Details">
+                            <svg viewBox="0 0 20 20" fill="currentColor" class="icon-code">
+                              <path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+                            </svg>
+                            <span>Inspect Raw</span>
+                          </button>
+                          <button class="btn-copy-raw" onclick="copyRaw(this, 'timeline-raw-code-${inc.id}-${index}')">
+                            <svg viewBox="0 0 20 20" fill="currentColor" class="icon-copy">
+                              <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
+                              <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
+                            </svg>
+                            <span>Copy</span>
+                          </button>
+                        </div>
+                        <div id="${containerId}" class="${rawClass}">
+                          <pre class="raw-code-pre"><code id="timeline-raw-code-${inc.id}-${index}">${escapeHtml(rawJson)}</code></pre>
+                        </div>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          `;
+        }
+
+        incidentsHtml += `
+          <div class="incident-row-container">
+            <div class="${rowClass}">
+              <div class="incident-date">
+                <span class="date-num">${inc.dayNum}</span>
+                <span class="date-day">${inc.dayName}</span>
+              </div>
+              <div class="incident-content">
+                <div class="incident-name">${inc.title}</div>
+                <div class="incident-desc">${inc.description}</div>
+              </div>
+              <div class="incident-time">${inc.time}</div>
+            </div>
+            ${timelineHtml}
+          </div>
+        `;
+      });
+      monthBlock.innerHTML = incidentsHtml;
+    }
+    
+    historyContainer.appendChild(monthBlock);
+  });
+}
+
+// Global UI interactive handlers
+window.toggleTimeline = function(id) {
+  const drawer = document.getElementById(`timeline-drawer-${id}`);
+  const btn = drawer.previousElementSibling.querySelector('.btn-timeline-toggle');
+  if (drawer.classList.contains('collapsed')) {
+    drawer.classList.remove('collapsed');
+    btn.classList.add('expanded');
+    btn.querySelector('span').textContent = 'Hide detailed timeline';
+  } else {
+    drawer.classList.add('collapsed');
+    btn.classList.remove('expanded');
+    const eventCount = drawer.querySelectorAll('.timeline-event-item').length;
+    btn.querySelector('span').textContent = `Show detailed timeline (${eventCount} events)`;
+  }
+};
+
+window.toggleRaw = function(incidentId, index) {
+  const container = document.getElementById(`timeline-raw-container-${incidentId}-${index}`);
+  if (container.classList.contains('collapsed')) {
+    container.classList.remove('collapsed');
+  } else {
+    container.classList.add('collapsed');
+  }
+};
+
+window.copyRaw = async function(btn, elementId) {
+  const code = document.getElementById(elementId).textContent;
+  try {
+    await navigator.clipboard.writeText(code);
+    const originalText = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = originalText;
+      btn.classList.remove('copied');
+    }, 2000);
+  } catch (err) {
+    console.error('Failed to copy text: ', err);
+  }
+};
+
+/**
+ * Fetch incident history from SQLite backend
+ */
+async function fetchIncidentHistory() {
+  try {
+    const response = await fetch('/api/incidents');
+    if (!response.ok) throw new Error("Failed to fetch incidents");
+    const incidents = await response.json();
+    renderIncidentHistory(incidents);
+  } catch (error) {
+    console.error("Failed to load incident history:", error);
+  }
+}
+
+/**
  * Fetch status from the backend API
  */
 async function fetchStatus() {
@@ -123,11 +430,29 @@ async function fetchStatus() {
     const data = await response.json();
     updateUI(data.state, data.lastChecked);
     renderHeartbeat(data.history);
+
+    // Dev HUD visibility
+    const devHud = document.getElementById('developer-hud');
+    const simBadge = document.getElementById('simulation-badge');
+    if (data.devMode) {
+      if (devHud) devHud.style.display = 'block';
+      if (simBadge) {
+        simBadge.style.display = data.simulated ? 'inline-block' : 'none';
+      }
+      if (statusBanner) {
+        if (data.simulated) {
+          statusBanner.classList.add('simulation-active');
+        } else {
+          statusBanner.classList.remove('simulation-active');
+        }
+      }
+    } else {
+      if (devHud) devHud.style.display = 'none';
+      if (statusBanner) statusBanner.classList.remove('simulation-active');
+    }
   } catch (error) {
     console.error('Failed to fetch status:', error);
-    // If backend cannot be reached, the system monitor itself is offline
     updateUI('Down', new Date().toISOString());
-    // Pre-populate with red offline status if backend call fails
     const offlineHistory = Array.from({ length: 30 }, (_, i) => ({
       timestamp: new Date(Date.now() - (29 - i) * 60000).toISOString(),
       state: 'Down'
@@ -168,7 +493,6 @@ async function fetchLogs() {
       logTerminal.appendChild(entry);
     });
 
-    // Auto-scroll to bottom
     logTerminal.scrollTop = logTerminal.scrollHeight;
   } catch (err) {
     console.error('Error loading logs:', err);
@@ -195,6 +519,81 @@ consoleToggle.addEventListener('click', () => {
   }
 });
 
-// Initial fetch and set interval for status polling (every 10 seconds)
+// Setup Developer HUD event listeners
+document.addEventListener('DOMContentLoaded', () => {
+  const simButtons = document.querySelectorAll('#developer-hud .hud-btn[data-state]');
+  const payloadField = document.getElementById('sim-error-payload');
+  const resumeBtn = document.getElementById('btn-resume-live');
+
+  simButtons.forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const state = btn.getAttribute('data-state');
+      const rawVal = payloadField.value.trim();
+      let payload = { state };
+
+      if (rawVal) {
+        try {
+          // Attempt to parse text as JSON
+          const parsed = JSON.parse(rawVal);
+          if (parsed && typeof parsed === 'object') {
+            payload.message = parsed.message || `Simulated ${state}`;
+            payload.raw = parsed.raw || parsed;
+          } else {
+            payload.message = rawVal;
+          }
+        } catch (e) {
+          // If not JSON, send it as a raw string message
+          payload.message = rawVal;
+        }
+      }
+
+      try {
+        const res = await fetch('/api/test/simulate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        
+        if (res.ok) {
+          // Immediate update to show user the simulation result
+          await fetchStatus();
+          await fetchIncidentHistory();
+          if (isLogsOpen) await fetchLogs();
+        } else {
+          const err = await res.json();
+          alert(`Simulation failed: ${err.error}`);
+        }
+      } catch (err) {
+        console.error("Simulation request error:", err);
+      }
+    });
+  });
+
+  if (resumeBtn) {
+    resumeBtn.addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/test/resume', {
+          method: 'POST'
+        });
+        if (res.ok) {
+          payloadField.value = ''; // clear payload helper
+          await fetchStatus();
+          await fetchIncidentHistory();
+          if (isLogsOpen) await fetchLogs();
+        } else {
+          const err = await res.json();
+          alert(`Failed to resume live monitor: ${err.error}`);
+        }
+      } catch (err) {
+        console.error("Resume request error:", err);
+      }
+    });
+  }
+});
+
+// Initial runs
 fetchStatus();
 setInterval(fetchStatus, 10000);
+fetchIncidentHistory();
+setInterval(fetchIncidentHistory, 10000);
+

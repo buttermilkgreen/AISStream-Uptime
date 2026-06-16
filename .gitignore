@@ -7,3 +7,9 @@ package-lock.json
 
 # OS files
 .DS_Store
+
+# SQLite databases
+*.sqlite
+*.db
+
+.DS_Store

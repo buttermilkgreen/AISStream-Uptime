@@ -1,0 +1,19 @@
+# Ignore dependency directories
+node_modules/
+
+# Ignore local environment variables and secrets
+.env
+.env*
+
+# Ignore local databases and logs
+*.db
+*.sqlite
+npm-debug.log*
+
+# Ignore OS metadata
+.DS_Store
+Thumbs.db
+
+# Ignore version control files
+.git
+.gitignore
