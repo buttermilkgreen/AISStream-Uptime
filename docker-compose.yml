@@ -14,7 +14,7 @@ services:
       # Pass the API key from the host environment or a .env file located next to docker-compose.yml
       - AISSTREAM_API_KEY=${AISSTREAM_API_KEY}
     volumes:
-      # Persist SQLite database. Mounts the local uptime.db file into the container.
-      # Note: Ensure that 'uptime.db' exists on the host machine (even if empty) before running 
-      # 'docker compose up' so Docker does not auto-create a directory with that name.
-      - ./uptime.db:/usr/src/app/uptime.db
+      # Persist SQLite database by mapping the data folder.
+      # Docker will automatically create the './data' directory on the host if it does not exist.
+      - ./data:/usr/src/app/data
+

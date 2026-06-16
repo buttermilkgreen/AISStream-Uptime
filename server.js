@@ -41,9 +41,14 @@ function logEvent(message, type = 'info') {
 }
 
 // 3. Database Initialization & Seeding
-const dbPath = path.join(__dirname, 'uptime.db');
+const dataDir = path.join(__dirname, 'data');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+const dbPath = path.join(dataDir, 'uptime.db');
 const db = new sqlite3.Database(dbPath);
 let activeIncidentId = null;
+
 
 db.serialize(() => {
   db.run(`
