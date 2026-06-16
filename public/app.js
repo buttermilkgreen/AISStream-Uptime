@@ -162,9 +162,13 @@ function renderIncidentHistory(incidents) {
   const today = new Date();
   const targetMonths = [];
 
-  // Initialize the list for the last 4 calendar months
+  // Initialize the list for the last 4 calendar months (only from June 2026 onwards)
   for (let i = 0; i < 4; i++) {
     const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    // Only show June 2026 (month index 5) and later
+    if (d.getFullYear() < 2026 || (d.getFullYear() === 2026 && d.getMonth() < 5)) {
+      continue;
+    }
     targetMonths.push({
       monthIndex: d.getMonth(),
       year: d.getFullYear(),

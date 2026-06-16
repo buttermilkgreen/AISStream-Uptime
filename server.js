@@ -61,39 +61,7 @@ db.serialize(() => {
     )
   `);
 
-  db.get("SELECT COUNT(*) as count FROM incidents", (err, row) => {
-    if (err) {
-      logEvent(`Database check error: ${err.message}`, 'error');
-      return;
-    }
-    if (row.count === 0) {
-      logEvent("Seeding initial mock incidents database for testing...", "info");
-      const stmt = db.prepare(`
-        INSERT INTO incidents (start_time, end_time, outage_type, details)
-        VALUES (?, ?, ?, ?)
-      `);
-      
-      const now = Date.now();
-      
-      // Seed 1: A Silent Failure in June (e.g. 5 days ago)
-      const juneStart = new Date(now - 5 * 24 * 60 * 60 * 1000);
-      const juneEnd = new Date(juneStart.getTime() + 45 * 60 * 1000);
-      stmt.run(juneStart.toISOString(), juneEnd.toISOString(), "Silent Failure", JSON.stringify({ message: "No AIS PositionReport messages received in 15 seconds." }));
-
-      // Seed 2: A Major Outage in April (e.g. 50 days ago)
-      const aprilStart1 = new Date(now - 50 * 24 * 60 * 60 * 1000);
-      const aprilEnd1 = new Date(aprilStart1.getTime() + 120 * 60 * 1000);
-      stmt.run(aprilStart1.toISOString(), aprilEnd1.toISOString(), "Down", JSON.stringify({ message: "WebSocket connection failed: host unreachable." }));
-
-      // Seed 3: An Auth Error in April (e.g. 77 days ago)
-      const aprilStart2 = new Date(now - 77 * 24 * 60 * 60 * 1000);
-      const aprilEnd2 = new Date(aprilStart2.getTime() + 30 * 60 * 1000);
-      stmt.run(aprilStart2.toISOString(), aprilEnd2.toISOString(), "Auth Error", JSON.stringify({ message: "Connection closed with code 1008: invalid credentials." }));
-
-      stmt.finalize();
-      logEvent("Database seeding completed successfully.", "success");
-    }
-  });
+  // Database is initialized empty. No mock seeding logic.
 });
 
 // 4. Uptime State variables and Heartbeat History (30 minutes)
