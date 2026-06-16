@@ -27,5 +27,9 @@ ENV PORT=3000
 # Expose the application port
 EXPOSE 3000
 
+# Force the app directory to be owned by the internal node user
+RUN chown -R node:node /usr/src/app
+USER node
+
 # Start the application
 CMD [ "npm", "start" ]
