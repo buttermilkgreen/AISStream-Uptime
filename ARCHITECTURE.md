@@ -29,11 +29,12 @@ The backend is built in pure Node.js without heavy frameworks (e.g., Express) to
 
 * **Static File Server**: Delivers the static assets located in the `/public` folder.
 * **HTTP API Endpoints**:
-  * `GET /api/status`: Returns current system status state, last checked timestamps, rolling 30-minute heartbeat history, plus `devMode` and `simulated` simulation flags.
-  * `GET /api/logs` (DEV mode only): Returns the 50 most recent console log messages stored in memory. Returns `403 Forbidden` in production.
-  * `GET /api/incidents`: Query historical incidents and active outages ordered reverse-chronologically (`start_time DESC`).
-  * `POST /api/test/simulate` (DEV mode only): Simulates manual state transitions (e.g. `Down`, `Silent Failure`, `Auth Error`, `Up`) with optional custom error message payloads.
-  * `POST /api/test/resume` (DEV mode only): Clears simulated state and resumes live monitoring of `stream.aisstream.io`.
+  * `GET /api/v1/status`: Returns current system status state, last checked timestamps, rolling 30-minute heartbeat history, plus `devMode` and `simulated` simulation flags. Supports query parameter `?simple=true` to skip database queries/caching and return only live connection metadata instantly.
+  * `GET /api/v1/health`: A lightweight check returning `{"status":"ok"}` instantly without database queries or caching.
+  * `GET /api/v1/logs` (DEV mode only): Returns the 50 most recent console log messages stored in memory. Returns `403 Forbidden` in production.
+  * `GET /api/v1/incidents`: Query historical incidents and active outages ordered reverse-chronologically (`start_time DESC`).
+  * `POST /api/v1/test/simulate` (DEV mode only): Simulates manual state transitions (e.g. `Down`, `Silent Failure`, `Auth Error`, `Up`) with optional custom error message payloads.
+  * `POST /api/v1/test/resume` (DEV mode only): Clears simulated state and resumes live monitoring of `stream.aisstream.io`.
 * **WebSocket Client**: Establishes a persistent connection to `wss://stream.aisstream.io/v0/stream`, subscribes to shipping vessel position reports in a defined geographical bounding box, and monitors stream state.
 * **Uptime State Machine**: Evaluates current health against five monitored states:
   * **Pending**: Initial startup state before a connection attempt completes.
@@ -62,13 +63,20 @@ To prevent timeline database bloat from polling checks that run every 2 seconds 
 - **Ongoing State**: During the outage, the database record reads `"No message received since [Timestamp] UTC"`.
 - **Resolved State**: When the connection resumes, the backend calculates the exact outage duration and formats it dynamically (seconds, minutes/seconds, or hours/minutes), rewriting the final database summary and matching timeline node to `"No message received for [duration]"`.
 
-### 2.4 Environment Configuration
+### 2.4 Rate Limiting & Response Caching
+To protect resource-constrained servers (such as a home lab environment) from abuse and performance bottlenecks, the backend implements:
+* **IP-based Rate Limiting**: Tracks incoming requests per IP address in an in-memory sliding window. If an IP exceeds `API_RATE_LIMIT_RPM` within a 1-minute period, it is throttled with an `HTTP 429 Too Many Requests` status code. Throttling is *only* applied to `/api/v1/...` routes; static files (HTML, CSS, JS) remain unthrottled.
+* **In-Memory Caching**: Caches JSON responses for resource-heavy endpoints (`GET /api/v1/status` and `GET /api/v1/incidents`) for a configurable duration (`API_CACHE_TTL_SECONDS`). Caches are cleared instantly upon state transitions or new incident records to ensure users always receive accurate real-time data when a status change happens.
+
+### 2.5 Environment Configuration
 The backend loads configuration settings from a local `.env` file or from the environment:
 * **`AISSTREAM_API_KEY`**: The API key required to authenticate with the AISStream WebSocket server.
 * **`PORT`**: The local port number on which the HTTP server listens (defaults to `3000`).
 * **`NODE_ENV` / `DEV`**: Setting `NODE_ENV=DEV` or `DEV=true` activates local developer simulation features.
 * **`AISSTREAM_BOUNDING_BOXES`**: A JSON string array defining geographical bounding boxes to subscribe to (defaults to Singapore Strait: `[[[1.15, 103.6], [1.45, 104.1]]]`).
 * **`SILENCE_TIMEOUT_SECONDS`**: Inactivity period in seconds before a connected stream is marked as a `Silent Failure` (defaults to `15`).
+* **`API_RATE_LIMIT_RPM`**: Maximum requests per minute allowed per client IP (defaults to `60`).
+* **`API_CACHE_TTL_SECONDS`**: Response caching duration in seconds for status and incident history (defaults to `15`).
 
 ---
 

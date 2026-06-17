@@ -327,7 +327,8 @@ body {
   border-top-color: #1f2937;
 }
 
-.heartbeat-block:hover .tooltip {
+.heartbeat-block:hover .tooltip,
+.heartbeat-block.active .tooltip {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }

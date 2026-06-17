@@ -26,11 +26,75 @@ const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.AISSTREAM_API_KEY;
 const isDevMode = process.env.NODE_ENV === 'DEV' || process.env.DEV === 'true';
 const SILENCE_TIMEOUT = parseInt(process.env.SILENCE_TIMEOUT_SECONDS, 10) || 15;
+const RATE_LIMIT_RPM = parseInt(process.env.API_RATE_LIMIT_RPM, 10) || 60;
+const CACHE_TTL_SECONDS = parseInt(process.env.API_CACHE_TTL_SECONDS, 10) || 15;
 let simulatedModeActive = false;
+const serverStartTime = new Date().toISOString();
 
+// Caching storage and helpers
+const responseCache = {
+  status: { data: null, expiresAt: 0 },
+  incidents: { data: null, expiresAt: 0 }
+};
+
+function getCachedResponse(key) {
+  const now = Date.now();
+  const cache = responseCache[key];
+  if (cache && cache.data && cache.expiresAt > now) {
+    return cache.data;
+  }
+  return null;
+}
+
+function setCachedResponse(key, data) {
+  const now = Date.now();
+  responseCache[key] = {
+    data: data,
+    expiresAt: now + (CACHE_TTL_SECONDS * 1000)
+  };
+}
+
+function invalidateCache() {
+  responseCache.status = { data: null, expiresAt: 0 };
+  responseCache.incidents = { data: null, expiresAt: 0 };
+}
+
+// Rate Limiting storage and helpers
+const ipRequests = new Map();
+
+function isRateLimited(ip) {
+  const now = Date.now();
+  const oneMinuteAgo = now - 60000;
+  
+  let timestamps = ipRequests.get(ip) || [];
+  timestamps = timestamps.filter(t => t > oneMinuteAgo);
+  
+  if (timestamps.length >= RATE_LIMIT_RPM) {
+    return true;
+  }
+  
+  timestamps.push(now);
+  ipRequests.set(ip, timestamps);
+  return false;
+}
+
+// Clean up rate limit tracker map once per minute
+setInterval(() => {
+  const now = Date.now();
+  const oneMinuteAgo = now - 60000;
+  for (const [ip, timestamps] of ipRequests.entries()) {
+    const fresh = timestamps.filter(t => t > oneMinuteAgo);
+    if (fresh.length === 0) {
+      ipRequests.delete(ip);
+    } else {
+      ipRequests.set(ip, fresh);
+    }
+  }
+}, 60000);
 
 // 2. Rolling log buffer (limit to 50 logs)
 const systemLogs = [];
+
 
 function sanitizeLog(message) {
   if (typeof message !== 'string') {
@@ -227,6 +291,7 @@ function appendIncidentEvent(incidentId, type, detailsObj) {
         logEvent(`Failed to append timeline event to incident #${incidentId}: ${err.message}`, "error");
       } else {
         logEvent(`Appended/updated timeline event for incident #${incidentId}`, "info");
+        invalidateCache();
       }
     });
   });
@@ -236,6 +301,7 @@ function appendIncidentEvent(incidentId, type, detailsObj) {
  * Handles state transitions and updates SQLite database outage history
  */
 function updateState(newState, detailsObj = null) {
+  invalidateCache();
   const oldState = currentStatus.state;
   currentStatus.lastChecked = new Date().toISOString();
   
@@ -353,7 +419,10 @@ function updateState(newState, detailsObj = null) {
     }
 
     // Otherwise, start a new incident window
-    const startTime = new Date().toISOString();
+    let startTime = new Date().toISOString();
+    if (newState === "Silent Failure" && lastMessageTime > 0) {
+      startTime = new Date(lastMessageTime).toISOString();
+    }
     const friendlyMessage = interpretError(detailsObj);
     const timelineDetails = {
       summary: friendlyMessage,
@@ -383,15 +452,7 @@ function updateState(newState, detailsObj = null) {
 }
 
 
-const heartbeatHistory = [];
-// Pre-populate history with 30 gray "Pending" blocks with decreasing minute timestamps
-const nowMs = Date.now();
-for (let i = 29; i >= 0; i--) {
-  heartbeatHistory.push({
-    timestamp: new Date(nowMs - i * 60000).toISOString(),
-    state: "Pending"
-  });
-}
+
 
 
 // WebSocket tracking references
@@ -592,36 +653,9 @@ function startSilenceCheck() {
   }, 2000);
 }
 
-/**
- * Appends the current state into the rolling history array on the minute.
- */
-function recordHeartbeat() {
-  const timestamp = new Date().toISOString();
-  heartbeatHistory.push({
-    timestamp,
-    state: currentStatus.state
-  });
-  if (heartbeatHistory.length > 30) {
-    heartbeatHistory.shift();
-  }
-}
-
-/**
- * Schedules the heartbeat checker to run at the start of the next minute, and then every 60s.
- */
-function startHeartbeatInterval() {
-  const now = new Date();
-  const delay = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
-  setTimeout(() => {
-    recordHeartbeat();
-    setInterval(recordHeartbeat, 60000);
-  }, delay);
-}
-
 // Start polling checks
 connectAISStream();
 startSilenceCheck();
-startHeartbeatInterval();
 
 // 4. HTTP API and Static Server
 const mimeTypes = {
@@ -646,23 +680,118 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // API - Status Endpoint
-  if (req.url === '/api/status' && req.method === 'GET') {
+  // Rate Limiting Check (Only on /api/v1/ routes)
+  if (req.url.startsWith('/api/v1/')) {
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+    if (isRateLimited(clientIp)) {
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        error: 'Too Many Requests: Rate limit exceeded. Please wait a minute.',
+        limit: RATE_LIMIT_RPM
+      }));
+      return;
+    }
+  }
+
+  // API - Health Check Endpoint (Lightweight, bypassed cache & DB)
+  if (req.url === '/api/v1/health' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      state: currentStatus.state,
-      lastChecked: currentStatus.lastChecked,
-      lastMessageReceived: currentStatus.lastMessageReceived,
-      history: heartbeatHistory,
-      devMode: isDevMode,
-      simulated: simulatedModeActive,
-      silenceTimeout: SILENCE_TIMEOUT
-    }));
+    res.end(JSON.stringify({ status: 'ok' }));
+    return;
+  }
+
+  // API - Status Endpoint
+  if (req.url.startsWith('/api/v1/status') && req.method === 'GET') {
+    const isSimple = req.url.includes('simple=true');
+    if (isSimple) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        state: currentStatus.state,
+        lastChecked: currentStatus.lastChecked,
+        lastMessageReceived: currentStatus.lastMessageReceived
+      }));
+      return;
+    }
+
+    const cached = getCachedResponse('status');
+    if (cached) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(cached);
+      return;
+    }
+
+    const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    
+    db.all(
+      "SELECT start_time, end_time, outage_type FROM incidents WHERE end_time IS NULL OR end_time >= ?",
+      [cutoffTime],
+      (err, rows) => {
+        if (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err.message }));
+          return;
+        }
+
+        const slots = [];
+        const now = Date.now();
+        const slotDuration = 30 * 60 * 1000; // 30 minutes
+        const serverStartMs = new Date(serverStartTime).getTime();
+
+        for (let i = 0; i < 48; i++) {
+          const slotStart = now - (48 - i) * slotDuration;
+          const slotEnd = slotStart + slotDuration;
+
+          let slotState = "Up";
+          if (slotEnd < serverStartMs) {
+            slotState = "Pending";
+          }
+
+          let worstOverlap = null;
+          const priority = { "Down": 3, "Auth Error": 2, "Silent Failure": 1, "Instability": 2.5 };
+
+          rows.forEach(row => {
+            const incStart = new Date(row.start_time).getTime();
+            const incEnd = row.end_time ? new Date(row.end_time).getTime() : now;
+
+            // Overlap check
+            if (incStart < slotEnd && incEnd > slotStart) {
+              const rowType = row.outage_type;
+              if (!worstOverlap || (priority[rowType] || 0) > (priority[worstOverlap] || 0)) {
+                worstOverlap = rowType;
+              }
+            }
+          });
+
+          if (worstOverlap) {
+            slotState = worstOverlap;
+          }
+
+          slots.push({
+            timestamp: new Date(slotEnd).toISOString(),
+            state: slotState
+          });
+        }
+
+        const payload = JSON.stringify({
+          state: currentStatus.state,
+          lastChecked: currentStatus.lastChecked,
+          lastMessageReceived: currentStatus.lastMessageReceived,
+          history: slots,
+          devMode: isDevMode,
+          simulated: simulatedModeActive,
+          silenceTimeout: SILENCE_TIMEOUT
+        });
+
+        setCachedResponse('status', payload);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(payload);
+      }
+    );
     return;
   }
 
   // API - Simulate Outage (Dev Mode only)
-  if (req.url === '/api/test/simulate' && req.method === 'POST') {
+  if (req.url === '/api/v1/test/simulate' && req.method === 'POST') {
     if (!isDevMode) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Forbidden: Simulation endpoint only available in DEV environment.' }));
@@ -709,7 +838,7 @@ const server = http.createServer((req, res) => {
   }
 
   // API - Resume Live Monitoring (Dev Mode only)
-  if (req.url === '/api/test/resume' && req.method === 'POST') {
+  if (req.url === '/api/v1/test/resume' && req.method === 'POST') {
     if (!isDevMode) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Forbidden: Simulation endpoint only available in DEV environment.' }));
@@ -729,7 +858,7 @@ const server = http.createServer((req, res) => {
   }
 
   // API - Logs Endpoint
-  if (req.url === '/api/logs' && req.method === 'GET') {
+  if (req.url === '/api/v1/logs' && req.method === 'GET') {
     if (!isDevMode) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Forbidden: Logs endpoint is only available in DEV environment.' }));
@@ -741,15 +870,24 @@ const server = http.createServer((req, res) => {
   }
 
   // API - Incidents Endpoint
-  if (req.url === '/api/incidents' && req.method === 'GET') {
+  if (req.url === '/api/v1/incidents' && req.method === 'GET') {
+    const cached = getCachedResponse('incidents');
+    if (cached) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(cached);
+      return;
+    }
+
     db.all("SELECT * FROM incidents ORDER BY start_time DESC", (err, rows) => {
       if (err) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: err.message }));
         return;
       }
+      const payload = JSON.stringify(rows);
+      setCachedResponse('incidents', payload);
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(rows));
+      res.end(payload);
     });
     return;
   }
@@ -758,6 +896,8 @@ const server = http.createServer((req, res) => {
   let filePath = req.url === '/' ? '/index.html' : req.url;
   const safePath = path.normalize(filePath).replace(/^(\.\.[\/\\])+/, '');
   const absolutePath = path.join(__dirname, 'public', safePath);
+
+
 
   fs.stat(absolutePath, (err, stats) => {
     if (err || !stats.isFile()) {
@@ -774,6 +914,7 @@ const server = http.createServer((req, res) => {
     stream.pipe(res);
   });
 });
+
 
 server.listen(PORT, () => {
   logEvent(`System server running at http://localhost:${PORT}/`, "success");

@@ -143,6 +143,20 @@ function renderHeartbeat(history) {
     tooltip.appendChild(timeSpan);
     block.appendChild(tooltip);
 
+    block.addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.querySelectorAll('.heartbeat-block').forEach(b => {
+        if (b !== block) b.classList.remove('active');
+      });
+      block.classList.toggle('active');
+    });
+
+    block.addEventListener('mouseenter', () => {
+      document.querySelectorAll('.heartbeat-block').forEach(b => {
+        b.classList.remove('active');
+      });
+    });
+
     heartbeatContainer.appendChild(block);
   });
 }
@@ -424,7 +438,7 @@ window.copyRaw = async function(btn, elementId) {
  */
 async function fetchIncidentHistory() {
   try {
-    const response = await fetch('/api/incidents');
+    const response = await fetch('/api/v1/incidents');
     if (!response.ok) throw new Error("Failed to fetch incidents");
     const incidents = await response.json();
     renderIncidentHistory(incidents);
@@ -438,7 +452,7 @@ async function fetchIncidentHistory() {
  */
 async function fetchStatus() {
   try {
-    const response = await fetch('/api/status');
+    const response = await fetch('/api/v1/status');
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -496,7 +510,7 @@ async function fetchStatus() {
  */
 async function fetchLogs() {
   try {
-    const response = await fetch('/api/logs');
+    const response = await fetch('/api/v1/logs');
     if (!response.ok) throw new Error('Failed to fetch logs');
     const logs = await response.json();
     
@@ -578,7 +592,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       try {
-        const res = await fetch('/api/test/simulate', {
+        const res = await fetch('/api/v1/test/simulate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -602,7 +616,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (resumeBtn) {
     resumeBtn.addEventListener('click', async () => {
       try {
-        const res = await fetch('/api/test/resume', {
+        const res = await fetch('/api/v1/test/resume', {
           method: 'POST'
         });
         if (res.ok) {
@@ -619,6 +633,13 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+});
+
+// Clear active heartbeat tooltips when clicking anywhere else
+document.addEventListener('click', () => {
+  document.querySelectorAll('.heartbeat-block').forEach(b => {
+    b.classList.remove('active');
+  });
 });
 
 // Initial runs
