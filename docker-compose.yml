@@ -13,6 +13,8 @@ services:
       - PORT=3000
       # Pass the API key from the host environment or a .env file located next to docker-compose.yml
       - AISSTREAM_API_KEY=${AISSTREAM_API_KEY}
+      - AISSTREAM_BOUNDING_BOXES=${AISSTREAM_BOUNDING_BOXES}
+      - SILENCE_TIMEOUT_SECONDS=${SILENCE_TIMEOUT_SECONDS}
     volumes:
       # Persist SQLite database using a Docker Named Volume to resolve host permission blocks.
       - ais_database_volume:/usr/src/app/data

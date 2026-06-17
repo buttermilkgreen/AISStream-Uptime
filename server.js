@@ -139,6 +139,30 @@ function interpretError(detailsObj) {
 }
 
 /**
+ * Formats a duration in seconds into a friendly human-readable string.
+ */
+function formatDuration(seconds) {
+  if (seconds < 60) {
+    const s = Math.max(1, Math.round(seconds));
+    return `${s} second${s === 1 ? '' : 's'}`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.round(seconds % 60);
+  if (minutes < 60) {
+    if (remainingSeconds === 0) {
+      return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+    }
+    return `${minutes} minute${minutes === 1 ? '' : 's'} and ${remainingSeconds} second${remainingSeconds === 1 ? '' : 's'}`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (remainingMinutes === 0) {
+    return `${hours} hour${hours === 1 ? '' : 's'}`;
+  }
+  return `${hours} hour${hours === 1 ? '' : 's'} and ${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}`;
+}
+
+/**
  * Appends a new error event to the timeline of an active incident
  */
 function appendIncidentEvent(incidentId, type, detailsObj) {
@@ -181,20 +205,28 @@ function appendIncidentEvent(incidentId, type, detailsObj) {
 
     const friendlyMessage = interpretError(detailsObj);
 
-    // Append new event to timeline
-    timelineDetails.errors.push({
-      timestamp: new Date().toISOString(),
-      type: type,
-      message: friendlyMessage,
-      raw: detailsObj.raw || detailsObj
-    });
+    // If the last error was also a "Silent Failure" and this new event is a "Silent Failure",
+    // update the message in-place instead of appending to prevent database bloat
+    const lastError = timelineDetails.errors[timelineDetails.errors.length - 1];
+    if (lastError && lastError.type === "Silent Failure" && type === "Silent Failure") {
+      lastError.timestamp = new Date().toISOString();
+      lastError.message = friendlyMessage;
+      lastError.raw = detailsObj.raw || detailsObj;
+    } else {
+      timelineDetails.errors.push({
+        timestamp: new Date().toISOString(),
+        type: type,
+        message: friendlyMessage,
+        raw: detailsObj.raw || detailsObj
+      });
+    }
     timelineDetails.summary = friendlyMessage;
 
     db.run("UPDATE incidents SET details = ? WHERE id = ?", [JSON.stringify(timelineDetails), incidentId], (err) => {
       if (err) {
         logEvent(`Failed to append timeline event to incident #${incidentId}: ${err.message}`, "error");
       } else {
-        logEvent(`Appended timeline event to incident #${incidentId}`, "info");
+        logEvent(`Appended/updated timeline event for incident #${incidentId}`, "info");
       }
     });
   });
@@ -232,12 +264,56 @@ function updateState(newState, detailsObj = null) {
       const activeId = activeIncidentId;
       activeIncidentId = null;
       const endTime = new Date().toISOString();
-      db.run("UPDATE incidents SET end_time = ? WHERE id = ?", [endTime, activeId], (err) => {
-        if (err) {
-          logEvent(`Failed to close active incident: ${err.message}`, "error");
-        } else {
-          logEvent(`Incident #${activeId} marked resolved at ${endTime}`, "success");
+
+      // Retrieve incident to update final silent failure duration if applicable
+      db.get("SELECT start_time, outage_type, details FROM incidents WHERE id = ?", [activeId], (err, row) => {
+        if (!err && row) {
+          let timelineDetails = { summary: "", errors: [] };
+          try {
+            timelineDetails = JSON.parse(row.details) || timelineDetails;
+          } catch (e) {}
+
+          const isSilent = row.outage_type === "Silent Failure" || 
+                           (row.outage_type === "Instability" && timelineDetails.errors.some(e => e.type === "Silent Failure"));
+
+          if (isSilent) {
+            const startMs = new Date(row.start_time).getTime();
+            const endMs = new Date(endTime).getTime();
+            const durationSec = (endMs - startMs) / 1000;
+            const durationText = formatDuration(durationSec);
+            const finalMsg = `No message received for ${durationText}.`;
+
+            timelineDetails.summary = finalMsg;
+            if (timelineDetails.errors && timelineDetails.errors.length > 0) {
+              const lastErr = timelineDetails.errors[timelineDetails.errors.length - 1];
+              if (lastErr.type === "Silent Failure") {
+                lastErr.message = finalMsg;
+              }
+            }
+
+            db.run(
+              "UPDATE incidents SET end_time = ?, details = ? WHERE id = ?",
+              [endTime, JSON.stringify(timelineDetails), activeId],
+              (updateErr) => {
+                if (updateErr) {
+                  logEvent(`Failed to close active incident with details: ${updateErr.message}`, "error");
+                } else {
+                  logEvent(`Incident #${activeId} marked resolved at ${endTime} with final duration: ${durationText}`, "success");
+                }
+              }
+            );
+            return;
+          }
         }
+
+        // Fallback for non-silent failure outages
+        db.run("UPDATE incidents SET end_time = ? WHERE id = ?", [endTime, activeId], (err) => {
+          if (err) {
+            logEvent(`Failed to close active incident: ${err.message}`, "error");
+          } else {
+            logEvent(`Incident #${activeId} marked resolved at ${endTime}`, "success");
+          }
+        });
       });
     }
     return;
@@ -501,9 +577,10 @@ function startSilenceCheck() {
     if (wsClient && wsClient.readyState === WebSocket.OPEN && hasReceivedDataSinceConnect) {
       const secondsSinceLastMessage = (Date.now() - lastMessageTime) / 1000;
       if (secondsSinceLastMessage > SILENCE_TIMEOUT) {
-        logEvent(`Silent Failure detected! No message received for ${Math.round(secondsSinceLastMessage)}s.`, "warning");
+        const lastTimeStr = new Date(lastMessageTime).toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+        logEvent(`Silent Failure detected! No message received since ${lastTimeStr}.`, "warning");
         updateState("Silent Failure", {
-          message: `No message received for ${Math.round(secondsSinceLastMessage)} seconds.`,
+          message: `No message received since ${lastTimeStr}`,
           raw: {
             secondsSinceLastMessage,
             lastMessageTime: new Date(lastMessageTime).toISOString(),
@@ -578,7 +655,8 @@ const server = http.createServer((req, res) => {
       lastMessageReceived: currentStatus.lastMessageReceived,
       history: heartbeatHistory,
       devMode: isDevMode,
-      simulated: simulatedModeActive
+      simulated: simulatedModeActive,
+      silenceTimeout: SILENCE_TIMEOUT
     }));
     return;
   }

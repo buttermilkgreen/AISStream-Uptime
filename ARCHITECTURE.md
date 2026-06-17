@@ -56,7 +56,13 @@ To prevent creating separate, fragmented incident records when a connection fluc
 2. If that incident was resolved **less than 120 seconds ago**, the server deletes the resolution timestamp (re-opens the incident) and appends the new failure details to its existing timeline events.
 3. If the server transitions *directly* between different failure states (e.g. `Down` -> `Auth Error` -> `Silent Failure`), the active incident's database type is updated to `Instability` while retaining the single continuous incident entry.
 
-### 2.3 Environment Configuration
+### 2.3 Silent Failure In-Place Updates & Resolution Formatting
+To prevent timeline database bloat from polling checks that run every 2 seconds during a long silent failure:
+- **In-Place Updates**: If consecutive failures are of type `Silent Failure`, the backend updates the existing timeline entry in-place instead of appending a new object.
+- **Ongoing State**: During the outage, the database record reads `"No message received since [Timestamp] UTC"`.
+- **Resolved State**: When the connection resumes, the backend calculates the exact outage duration and formats it dynamically (seconds, minutes/seconds, or hours/minutes), rewriting the final database summary and matching timeline node to `"No message received for [duration]"`.
+
+### 2.4 Environment Configuration
 The backend loads configuration settings from a local `.env` file or from the environment:
 * **`AISSTREAM_API_KEY`**: The API key required to authenticate with the AISStream WebSocket server.
 * **`PORT`**: The local port number on which the HTTP server listens (defaults to `3000`).

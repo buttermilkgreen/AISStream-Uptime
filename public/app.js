@@ -69,7 +69,7 @@ let isLogsOpen = false;
  * @param {string} state - The status state
  * @param {string} lastChecked - Timestamp of the check
  */
-function updateUI(state, lastChecked) {
+function updateUI(state, lastChecked, silenceTimeout) {
   const config = STATE_CONFIGS[state] || {
     className: 'state-loading',
     statusTitle: 'Checking Status...',
@@ -87,7 +87,13 @@ function updateUI(state, lastChecked) {
   statusBanner.className = `status-banner ${config.className}`;
   statusBannerIcon.innerHTML = config.iconHtml;
   statusBannerTitle.textContent = config.statusTitle;
-  statusBannerDesc.textContent = config.description;
+  
+  if (state === 'Silent Failure') {
+    const limit = silenceTimeout || 15;
+    statusBannerDesc.textContent = `The WebSocket connection is open, but no messages have arrived in the last ${limit} seconds.`;
+  } else {
+    statusBannerDesc.textContent = config.description;
+  }
 
   // Update Component Status Text
   componentStatus.className = `component-status-text ${state.replace(/\s+/g, '-')}`;
@@ -437,7 +443,7 @@ async function fetchStatus() {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     const data = await response.json();
-    updateUI(data.state, data.lastChecked);
+    updateUI(data.state, data.lastChecked, data.silenceTimeout);
     renderHeartbeat(data.history);
 
     // Dev HUD visibility
