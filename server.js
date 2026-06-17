@@ -54,7 +54,7 @@ function logEvent(message, type = 'info') {
   if (systemLogs.length > 50) {
     systemLogs.shift();
   }
-  console.log(`[${type.toUpperCase()}] ${sanitized}`);
+  console.log(`[${timestamp}] [${type.toUpperCase()}] ${sanitized}`);
 }
 
 // 3. Database Initialization & Seeding
