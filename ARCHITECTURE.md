@@ -30,7 +30,7 @@ The backend is built in pure Node.js without heavy frameworks (e.g., Express) to
 * **Static File Server**: Delivers the static assets located in the `/public` folder.
 * **HTTP API Endpoints**:
   * `GET /api/status`: Returns current system status state, last checked timestamps, rolling 30-minute heartbeat history, plus `devMode` and `simulated` simulation flags.
-  * `GET /api/logs`: Returns the 50 most recent console log messages stored in memory.
+  * `GET /api/logs` (DEV mode only): Returns the 50 most recent console log messages stored in memory. Returns `403 Forbidden` in production.
   * `GET /api/incidents`: Query historical incidents and active outages ordered reverse-chronologically (`start_time DESC`).
   * `POST /api/test/simulate` (DEV mode only): Simulates manual state transitions (e.g. `Down`, `Silent Failure`, `Auth Error`, `Up`) with optional custom error message payloads.
   * `POST /api/test/resume` (DEV mode only): Clears simulated state and resumes live monitoring of `stream.aisstream.io`.
@@ -38,9 +38,11 @@ The backend is built in pure Node.js without heavy frameworks (e.g., Express) to
 * **Uptime State Machine**: Evaluates current health against five monitored states:
   * **Pending**: Initial startup state before a connection attempt completes.
   * **Up**: Connected to WebSocket and receiving live data messages.
-  * **Silent Failure**: WebSocket is open, but no ship messages have arrived for 15+ seconds.
+  * **Silent Failure**: WebSocket is open, but no ship messages have arrived for configured `SILENCE_TIMEOUT_SECONDS` (defaults to 15 seconds).
   * **Auth Error**: WebSocket connection rejected due to credentials/API key failure.
   * **Down**: WebSocket connection dropped or host unreachable (DNS, socket timeout, etc.).
+* **Log Redaction & Safety**: The system sanitizes log messages using a multi-layered filter (`sanitizeLog`) to prevent accidental API key leaks. It redacts the literal value of `AISSTREAM_API_KEY` and scrubs JSON/Query patterns matching `apiKey`, `key`, or `token`.
+* **Stream Telemetry**: The server tracks message counts and logs 30-second throughput statistics (total reports, average reports/sec) to connection logs.
 
 ### 2.1 Error Interpretation
 The server includes a translation layer `interpretError(detailsObj)` that scans raw errors (e.g. status codes, socket flags) and produces a human-friendly description:
@@ -53,6 +55,14 @@ To prevent creating separate, fragmented incident records when a connection fluc
 1. When a new failure occurs, the server queries the database for the most recent incident.
 2. If that incident was resolved **less than 120 seconds ago**, the server deletes the resolution timestamp (re-opens the incident) and appends the new failure details to its existing timeline events.
 3. If the server transitions *directly* between different failure states (e.g. `Down` -> `Auth Error` -> `Silent Failure`), the active incident's database type is updated to `Instability` while retaining the single continuous incident entry.
+
+### 2.3 Environment Configuration
+The backend loads configuration settings from a local `.env` file or from the environment:
+* **`AISSTREAM_API_KEY`**: The API key required to authenticate with the AISStream WebSocket server.
+* **`PORT`**: The local port number on which the HTTP server listens (defaults to `3000`).
+* **`NODE_ENV` / `DEV`**: Setting `NODE_ENV=DEV` or `DEV=true` activates local developer simulation features.
+* **`AISSTREAM_BOUNDING_BOXES`**: A JSON string array defining geographical bounding boxes to subscribe to (defaults to Singapore Strait: `[[[1.15, 103.6], [1.45, 104.1]]]`).
+* **`SILENCE_TIMEOUT_SECONDS`**: Inactivity period in seconds before a connected stream is marked as a `Silent Failure` (defaults to `15`).
 
 ---
 
@@ -112,7 +122,7 @@ The frontend is a single-page app built using semantic HTML5, Vanilla JavaScript
 
 * **Status Banner**: Located at the top of the viewport. It dynamically changes colors, icons, and descriptions based on the overall system health state returned by `/api/status`. If in simulation mode, it renders a warning indicator overlay.
 * **Heartbeat Bar**: A rolling grid of 30 blocks representing the status for each of the last 30 minutes. Hovering over a block displays a tooltipped snapshot of status and timestamp.
-* **Console Terminal**: A slide-out drawer that polls `/api/logs` every 2 seconds, displaying color-coded daemon operations (successes, socket errors, connection schedules) in a terminal-like environment.
+* **Console Terminal**: A slide-out drawer that appears only when developer mode is active (`DEV=true` or `NODE_ENV=DEV`). It polls `/api/logs` every 2 seconds, displaying color-coded daemon operations, subscription configurations, reconnection statistics, and message throughput telemetry in a terminal-like environment. Hidden entirely in production environments.
 * **Incidents feed**:
   * Displays history grouped by the last 4 calendar months.
   * Truncates long summary text descriptions in the main feed and detailed timeline event logs to 140 characters, while retaining the full unabridged event log text exclusively inside the raw inspect pre block.

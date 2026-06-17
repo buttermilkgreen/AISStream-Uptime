@@ -2,8 +2,8 @@
 const STATE_CONFIGS = {
   'Up': {
     className: 'state-up',
-    statusTitle: "We're fully operational",
-    description: "We're not aware of any issues affecting our systems.",
+    statusTitle: "Fully Operational",
+    description: "No known issues",
     badgeText: 'Operational',
     iconHtml: `
       <svg class="icon-check-circle" viewBox="0 0 20 20" fill="currentColor" style="width: 22px; height: 22px; color: #10b981;">
@@ -238,11 +238,13 @@ function renderIncidentHistory(incidents) {
 
       // Truncate the main view description to 140 characters
       const displayDescription = description.length > 140 ? description.substring(0, 137) + "..." : description;
+      const startTimeFormatted = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
       match.incidents.push({
         id: inc.id,
         dayNum,
         dayName,
+        startTimeFormatted,
         title,
         description: displayDescription,
         time: timeText,
@@ -347,8 +349,11 @@ function renderIncidentHistory(incidents) {
           <div class="incident-row-container">
             <div class="${rowClass}">
               <div class="incident-date">
-                <span class="date-num">${inc.dayNum}</span>
-                <span class="date-day">${inc.dayName}</span>
+                <div class="date-row">
+                  <span class="date-num">${inc.dayNum}</span>
+                  <span class="date-day">${inc.dayName}</span>
+                </div>
+                <div class="date-time-start">${inc.startTimeFormatted}</div>
               </div>
               <div class="incident-content">
                 <div class="incident-name">${inc.title}</div>
@@ -438,8 +443,10 @@ async function fetchStatus() {
     // Dev HUD visibility
     const devHud = document.getElementById('developer-hud');
     const simBadge = document.getElementById('simulation-badge');
+    const consoleDrawer = document.getElementById('console-drawer');
     if (data.devMode) {
       if (devHud) devHud.style.display = 'block';
+      if (consoleDrawer) consoleDrawer.style.display = 'block';
       if (simBadge) {
         simBadge.style.display = data.simulated ? 'inline-block' : 'none';
       }
@@ -452,6 +459,19 @@ async function fetchStatus() {
       }
     } else {
       if (devHud) devHud.style.display = 'none';
+      if (consoleDrawer) {
+        consoleDrawer.style.display = 'none';
+        // Clear log intervals if active
+        if (logsInterval) {
+          clearInterval(logsInterval);
+          logsInterval = null;
+        }
+        isLogsOpen = false;
+        const consoleBody = document.getElementById('console-body');
+        if (consoleBody) consoleBody.classList.add('collapsed');
+        const toggleIndicator = document.getElementById('toggle-indicator');
+        if (toggleIndicator) toggleIndicator.textContent = 'Show';
+      }
       if (statusBanner) statusBanner.classList.remove('simulation-active');
     }
   } catch (error) {

@@ -25,19 +25,36 @@ loadEnv();
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.AISSTREAM_API_KEY;
 const isDevMode = process.env.NODE_ENV === 'DEV' || process.env.DEV === 'true';
+const SILENCE_TIMEOUT = parseInt(process.env.SILENCE_TIMEOUT_SECONDS, 10) || 15;
 let simulatedModeActive = false;
 
 
 // 2. Rolling log buffer (limit to 50 logs)
 const systemLogs = [];
+
+function sanitizeLog(message) {
+  if (typeof message !== 'string') {
+    message = String(message);
+  }
+  if (API_KEY) {
+    message = message.split(API_KEY).join('[REDACTED_API_KEY]');
+  }
+  // Replace JSON/Query key formats (case-insensitive keys: APIKey, apiKey, apikey, key, token)
+  message = message.replace(/(["']?apiKey["']?\s*:\s*["'])([^"']+)(["'])/gi, '$1[REDACTED_API_KEY]$3');
+  message = message.replace(/(["']?key["']?\s*:\s*["'])([^"']+)(["'])/gi, '$1[REDACTED_API_KEY]$3');
+  message = message.replace(/(["']?token["']?\s*:\s*["'])([^"']+)(["'])/gi, '$1[REDACTED_API_KEY]$3');
+  return message;
+}
+
 function logEvent(message, type = 'info') {
+  const sanitized = sanitizeLog(message);
   const timestamp = new Date().toISOString();
-  const logObj = { timestamp, message, type };
+  const logObj = { timestamp, message: sanitized, type };
   systemLogs.push(logObj);
   if (systemLogs.length > 50) {
     systemLogs.shift();
   }
-  console.log(`[${type.toUpperCase()}] ${message}`);
+  console.log(`[${type.toUpperCase()}] ${sanitized}`);
 }
 
 // 3. Database Initialization & Seeding
@@ -308,6 +325,17 @@ let silenceCheckInterval = null;
 let lastMessageTime = 0;
 let connectionOpenTime = 0;
 let hasReceivedDataSinceConnect = false;
+let messageCounter = 0;
+let reconnectAttempts = 0;
+
+// Periodic 30-second message throughput logger
+setInterval(() => {
+  if (wsClient && wsClient.readyState === WebSocket.OPEN && hasReceivedDataSinceConnect && !simulatedModeActive) {
+    const rate = (messageCounter / 30).toFixed(1);
+    logEvent(`Stream telemetry: Received ${messageCounter} vessel messages in the last 30s (${rate} msg/s).`, "info");
+    messageCounter = 0;
+  }
+}, 30000);
 
 /**
  * Connects to the AISStream WebSocket and starts monitoring state
@@ -348,14 +376,25 @@ function connectAISStream() {
     clearTimeout(connectionTimeout);
     connectionOpenTime = Date.now();
     hasReceivedDataSinceConnect = false;
-    logEvent("WebSocket connection established. Sending subscription payload...", "success");
+    messageCounter = 0;
+    reconnectAttempts = 0;
+    logEvent("WebSocket connection established. Constructing subscription...", "success");
 
-    // Subscription payload for Singapore Strait
+    // Subscription payload with fallback default (Singapore Strait)
+    let boundingBoxes = [[[1.15, 103.6], [1.45, 104.1]]];
+    if (process.env.AISSTREAM_BOUNDING_BOXES) {
+      try {
+        boundingBoxes = JSON.parse(process.env.AISSTREAM_BOUNDING_BOXES);
+      } catch (err) {
+        logEvent(`Failed to parse AISSTREAM_BOUNDING_BOXES: ${err.message}. Using default.`, "warning");
+      }
+    }
+
+    logEvent(`Subscription settings: BoundingBoxes=${JSON.stringify(boundingBoxes)} Filters=["PositionReport"]`, "info");
+
     const subscription = {
       APIKey: API_KEY,
-      BoundingBoxes: [
-        [[1.15, 103.6], [1.45, 104.1]]
-      ],
+      BoundingBoxes: boundingBoxes,
       FilterMessageTypes: ["PositionReport"]
     };
 
@@ -365,6 +404,7 @@ function connectAISStream() {
 
   wsClient.on('message', (data) => {
     if (simulatedModeActive) return;
+    messageCounter++;
     lastMessageTime = Date.now();
     currentStatus.lastMessageReceived = new Date().toISOString();
     
@@ -444,13 +484,14 @@ function connectAISStream() {
  */
 function scheduleReconnect() {
   if (reconnectTimer) clearTimeout(reconnectTimer);
-  logEvent("Scheduling reconnect in 10 seconds...", "info");
+  reconnectAttempts++;
+  logEvent(`Scheduling reconnect attempt #${reconnectAttempts} in 10 seconds...`, "info");
   reconnectTimer = setTimeout(connectAISStream, 10000);
 }
 
 /**
  * Timer to detect "Silent Failure" state.
- * Runs every 2 seconds. If connected but no message arrived in 15 seconds, trigger Silent Failure.
+ * Runs every 2 seconds. If connected but no message arrived in SILENCE_TIMEOUT seconds, trigger Silent Failure.
  */
 function startSilenceCheck() {
   if (silenceCheckInterval) clearInterval(silenceCheckInterval);
@@ -459,7 +500,7 @@ function startSilenceCheck() {
     if (simulatedModeActive) return;
     if (wsClient && wsClient.readyState === WebSocket.OPEN && hasReceivedDataSinceConnect) {
       const secondsSinceLastMessage = (Date.now() - lastMessageTime) / 1000;
-      if (secondsSinceLastMessage > 15) {
+      if (secondsSinceLastMessage > SILENCE_TIMEOUT) {
         logEvent(`Silent Failure detected! No message received for ${Math.round(secondsSinceLastMessage)}s.`, "warning");
         updateState("Silent Failure", {
           message: `No message received for ${Math.round(secondsSinceLastMessage)} seconds.`,
@@ -611,6 +652,11 @@ const server = http.createServer((req, res) => {
 
   // API - Logs Endpoint
   if (req.url === '/api/logs' && req.method === 'GET') {
+    if (!isDevMode) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden: Logs endpoint is only available in DEV environment.' }));
+      return;
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(systemLogs));
     return;
