@@ -26,6 +26,7 @@ const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.AISSTREAM_API_KEY;
 const isDevMode = process.env.NODE_ENV === 'DEV' || process.env.DEV === 'true';
 const SILENCE_TIMEOUT = parseInt(process.env.SILENCE_TIMEOUT_SECONDS, 10) || 15;
+const SILENCE_TO_DOWN_TIMEOUT = parseInt(process.env.SILENCE_TO_DOWN_TIMEOUT_SECONDS, 10) || 1800;
 const RATE_LIMIT_RPM = parseInt(process.env.API_RATE_LIMIT_RPM, 10) || 60;
 const CACHE_TTL_SECONDS = parseInt(process.env.API_CACHE_TTL_SECONDS, 10) || 15;
 let simulatedModeActive = false;
@@ -269,10 +270,9 @@ function appendIncidentEvent(incidentId, type, detailsObj) {
 
     const friendlyMessage = interpretError(detailsObj);
 
-    // If the last error was also a "Silent Failure" and this new event is a "Silent Failure",
-    // update the message in-place instead of appending to prevent database bloat
+    // If the last error was of the same state type, update the event in-place to prevent timeline bloat
     const lastError = timelineDetails.errors[timelineDetails.errors.length - 1];
-    if (lastError && lastError.type === "Silent Failure" && type === "Silent Failure") {
+    if (lastError && lastError.type === type) {
       lastError.timestamp = new Date().toISOString();
       lastError.message = friendlyMessage;
       lastError.raw = detailsObj.raw || detailsObj;
@@ -340,7 +340,7 @@ function updateState(newState, detailsObj = null) {
           } catch (e) {}
 
           const isSilent = row.outage_type === "Silent Failure" || 
-                           (row.outage_type === "Instability" && timelineDetails.errors.some(e => e.type === "Silent Failure"));
+                           (row.outage_type === "Service Outage" && timelineDetails.errors.some(e => e.type === "Silent Failure"));
 
           if (isSilent) {
             const startMs = new Date(row.start_time).getTime();
@@ -389,9 +389,9 @@ function updateState(newState, detailsObj = null) {
   
   // If transitioning between different failing states, keep the same incident active
   if (isOldStateFailing && isNewStateFailing && activeIncidentId !== null) {
-    logEvent(`Transitioning within outage: changing type of #${activeIncidentId} to Instability`, "info");
-    db.run("UPDATE incidents SET outage_type = 'Instability' WHERE id = ?", [activeIncidentId], (err) => {
-      if (err) logEvent(`Failed to update incident type to Instability: ${err.message}`, "error");
+    logEvent(`Transitioning within outage: changing type of #${activeIncidentId} to Service Outage`, "info");
+    db.run("UPDATE incidents SET outage_type = 'Service Outage' WHERE id = ?", [activeIncidentId], (err) => {
+      if (err) logEvent(`Failed to update incident type to Service Outage: ${err.message}`, "error");
     });
     appendIncidentEvent(activeIncidentId, newState, detailsObj);
     return;
@@ -635,16 +635,35 @@ function startSilenceCheck() {
   
   silenceCheckInterval = setInterval(() => {
     if (simulatedModeActive) return;
-    if (wsClient && wsClient.readyState === WebSocket.OPEN && hasReceivedDataSinceConnect) {
-      const secondsSinceLastMessage = (Date.now() - lastMessageTime) / 1000;
-      if (secondsSinceLastMessage > SILENCE_TIMEOUT) {
-        const lastTimeStr = new Date(lastMessageTime).toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
-        logEvent(`Silent Failure detected! No message received since ${lastTimeStr}.`, "warning");
-        updateState("Silent Failure", {
-          message: `No message received since ${lastTimeStr}`,
+    if (wsClient && wsClient.readyState === WebSocket.OPEN) {
+      const checkStartTime = hasReceivedDataSinceConnect ? lastMessageTime : connectionOpenTime;
+      if (checkStartTime === 0) return; // Connection established but open time not recorded yet
+      
+      const secondsSinceLastMessage = (Date.now() - checkStartTime) / 1000;
+      
+      if (secondsSinceLastMessage > SILENCE_TO_DOWN_TIMEOUT) {
+        const friendlyDuration = formatDuration(secondsSinceLastMessage);
+        const detailedMsg = `Connection established but no ships received for ${friendlyDuration}.`;
+        
+        logEvent(`Escalating to Down: ${detailedMsg}`, "error");
+        updateState("Down", {
+          message: detailedMsg,
           raw: {
             secondsSinceLastMessage,
-            lastMessageTime: new Date(lastMessageTime).toISOString(),
+            checkStartTime: new Date(checkStartTime).toISOString(),
+            currentTime: new Date().toISOString()
+          }
+        });
+      } else if (secondsSinceLastMessage > SILENCE_TIMEOUT) {
+        const friendlyDuration = formatDuration(secondsSinceLastMessage);
+        const detailedMsg = `Connection established but no ships received for ${friendlyDuration}.`;
+        
+        logEvent(`Silent Failure detected: ${detailedMsg}`, "warning");
+        updateState("Silent Failure", {
+          message: detailedMsg,
+          raw: {
+            secondsSinceLastMessage,
+            checkStartTime: new Date(checkStartTime).toISOString(),
             currentTime: new Date().toISOString()
           }
         });
@@ -741,13 +760,8 @@ const server = http.createServer((req, res) => {
           const slotStart = now - (48 - i) * slotDuration;
           const slotEnd = slotStart + slotDuration;
 
-          let slotState = "Up";
-          if (slotEnd < serverStartMs) {
-            slotState = "Pending";
-          }
-
           let worstOverlap = null;
-          const priority = { "Down": 3, "Auth Error": 2, "Silent Failure": 1, "Instability": 2.5 };
+          const priority = { "Down": 3, "Auth Error": 2, "Silent Failure": 1, "Service Outage": 2.5 };
 
           rows.forEach(row => {
             const incStart = new Date(row.start_time).getTime();
@@ -762,8 +776,11 @@ const server = http.createServer((req, res) => {
             }
           });
 
+          let slotState = "Up";
           if (worstOverlap) {
             slotState = worstOverlap;
+          } else if (slotEnd < serverStartMs) {
+            slotState = "Pending";
           }
 
           slots.push({

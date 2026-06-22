@@ -23,6 +23,7 @@
     <header class="app-header">
       <div class="logo-area">
         <h1>AIS Stream Uptime</h1>
+        <p class="logo-subtitle">Unofficial uptime monitor</p>
       </div>
       <div class="header-buttons">
         <a href="#" class="btn" id="btn-subscribe">Subscribe</a>
@@ -36,7 +37,9 @@
         <div class="status-banner-header">
           <div class="status-icon-wrapper" id="status-banner-icon">
             <svg class="icon-check-circle" viewBox="0 0 20 20" fill="currentColor" style="width: 22px; height: 22px;">
-              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l5-5z" clip-rule="evenodd" />
+              <path fill-rule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l5-5z"
+                clip-rule="evenodd" />
             </svg>
           </div>
           <div id="status-banner-title" class="status-title">Checking Status...</div>
@@ -58,7 +61,8 @@
         <div class="hud-body">
           <div class="hud-field">
             <label for="sim-error-payload">WebSocket Error / Details Payload (Optional)</label>
-            <textarea id="sim-error-payload" placeholder="e.g. Host unreachable, or raw JSON like: {&quot;message&quot;: &quot;Auth failed&quot;, &quot;raw&quot;: {&quot;code&quot;: 1008}}"></textarea>
+            <textarea id="sim-error-payload"
+              placeholder="e.g. Host unreachable, or raw JSON like: {&quot;message&quot;: &quot;Auth failed&quot;, &quot;raw&quot;: {&quot;code&quot;: 1008}}"></textarea>
           </div>
           <div class="hud-actions-grid">
             <button type="button" class="hud-btn btn-up" data-state="Up">Simulate Up</button>
@@ -80,7 +84,7 @@
         </div>
         <!-- Heartbeat Container (30-minute interval statuses for the last 24 hours) -->
         <div id="heartbeat-container" class="heartbeat-container"></div>
-        
+
         <div class="uptime-meta">
           <span>Last checked: <span id="last-checked">Never</span></span>
         </div>

@@ -43,6 +43,18 @@ const STATE_CONFIGS = {
         <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
       </svg>
     `
+  },
+  'Pending': {
+    className: 'state-loading',
+    statusTitle: 'Connecting...',
+    description: 'Establishing WebSocket connection and awaiting initial ship data.',
+    badgeText: 'Pending',
+    iconHtml: `
+      <svg class="animate-spin" viewBox="0 0 24 24" fill="none" style="width: 22px; height: 22px; color: #6b7280;">
+        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" style="opacity: 0.25;"></circle>
+        <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+    `
   }
 };
 
@@ -87,7 +99,7 @@ function updateUI(state, lastChecked, silenceTimeout) {
   statusBanner.className = `status-banner ${config.className}`;
   statusBannerIcon.innerHTML = config.iconHtml;
   statusBannerTitle.textContent = config.statusTitle;
-  
+
   if (state === 'Silent Failure') {
     const limit = silenceTimeout || 15;
     statusBannerDesc.textContent = `The WebSocket connection is open, but no messages have arrived in the last ${limit} seconds.`;
@@ -98,7 +110,7 @@ function updateUI(state, lastChecked, silenceTimeout) {
   // Update Component Status Text
   componentStatus.className = `component-status-text ${state.replace(/\s+/g, '-')}`;
   componentStatus.textContent = config.badgeText;
-  
+
   if (lastChecked) {
     const timeString = new Date(lastChecked).toLocaleTimeString();
     lastCheckedEl.textContent = timeString;
@@ -135,8 +147,8 @@ function renderHeartbeat(history) {
     const timeSpan = document.createElement('span');
     timeSpan.className = 'tooltip-time';
     const dateObj = new Date(item.timestamp);
-    timeSpan.textContent = isNaN(dateObj.getTime()) 
-      ? 'Pending' 
+    timeSpan.textContent = isNaN(dateObj.getTime())
+      ? 'Pending'
       : `${dateObj.toLocaleDateString()} ${dateObj.toLocaleTimeString()}`;
 
     tooltip.appendChild(stateSpan);
@@ -167,7 +179,7 @@ function renderHeartbeat(history) {
  */
 function renderIncidentHistory(incidents) {
   if (!historyContainer) return;
-  
+
   // 1. Capture currently open drawers/raw containers before rewriting the innerHTML
   const activeTimelineDrawers = new Set(
     Array.from(document.querySelectorAll('.timeline-drawer:not(.collapsed)')).map(el => el.id)
@@ -219,7 +231,13 @@ function renderIncidentHistory(incidents) {
       const dayNum = String(start.getDate()).padStart(2, '0');
       const dayName = days[start.getDay()];
 
-      let title = `${inc.outage_type} Outage`;
+      const stateTitleMap = {
+        'Down': 'Complete Loss of Service',
+        'Silent Failure': 'Connected but No Data',
+        'Service Outage': 'Complete Loss of Service',
+        'Auth Error': 'Authentication Failure'
+      };
+      let title = stateTitleMap[inc.outage_type] || inc.outage_type;
       let description = "No further details logged.";
       let errorsTimeline = null;
       if (inc.details) {
@@ -235,7 +253,7 @@ function renderIncidentHistory(incidents) {
               description = parsed.message;
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       let timeText = "";
@@ -278,7 +296,7 @@ function renderIncidentHistory(incidents) {
   targetMonths.forEach(item => {
     const monthBlock = document.createElement('div');
     monthBlock.className = 'history-month-block';
-    
+
     if (item.incidents.length === 0) {
       monthBlock.innerHTML = `
         <div class="month-no-incidents">
@@ -295,7 +313,7 @@ function renderIncidentHistory(incidents) {
       let incidentsHtml = `<h3 class="month-header">${item.monthName}</h3>`;
       item.incidents.forEach(inc => {
         const rowClass = `incident-row ${inc.outageType.replace(/\s+/g, '-')} ${inc.isOngoing ? 'ongoing' : ''}`;
-        
+
         let timelineHtml = "";
         if (inc.timeline && inc.timeline.length > 0) {
           const drawerId = `timeline-drawer-${inc.id}`;
@@ -319,16 +337,16 @@ function renderIncidentHistory(incidents) {
             <div id="${drawerId}" class="${drawerClass}">
               <div class="timeline-events">
                 ${reversedTimelineEvents.map(({ event, index }) => {
-                  const eventTime = new Date(event.timestamp).toLocaleTimeString();
-                  const rawJson = JSON.stringify(event.raw || event, null, 2);
-                  const containerId = `timeline-raw-container-${inc.id}-${index}`;
-                  const isRawExpanded = activeRawContainers.has(containerId);
-                  const rawClass = isRawExpanded ? "timeline-raw-container" : "timeline-raw-container collapsed";
+            const eventTime = new Date(event.timestamp).toLocaleTimeString();
+            const rawJson = JSON.stringify(event.raw || event, null, 2);
+            const containerId = `timeline-raw-container-${inc.id}-${index}`;
+            const isRawExpanded = activeRawContainers.has(containerId);
+            const rawClass = isRawExpanded ? "timeline-raw-container" : "timeline-raw-container collapsed";
 
-                  const rawMessage = event.message || 'No description';
-                  const displayMessage = rawMessage.length > 140 ? rawMessage.substring(0, 137) + '...' : rawMessage;
+            const rawMessage = event.message || 'No description';
+            const displayMessage = rawMessage.length > 140 ? rawMessage.substring(0, 137) + '...' : rawMessage;
 
-                  return `
+            return `
                     <div class="timeline-event-item">
                       <div class="timeline-event-dot ${event.type.replace(/\s+/g, '-')}"></div>
                       <div class="timeline-event-body">
@@ -359,7 +377,7 @@ function renderIncidentHistory(incidents) {
                       </div>
                     </div>
                   `;
-                }).join('')}
+          }).join('')}
               </div>
             </div>
           `;
@@ -387,13 +405,13 @@ function renderIncidentHistory(incidents) {
       });
       monthBlock.innerHTML = incidentsHtml;
     }
-    
+
     historyContainer.appendChild(monthBlock);
   });
 }
 
 // Global UI interactive handlers
-window.toggleTimeline = function(id) {
+window.toggleTimeline = function (id) {
   const drawer = document.getElementById(`timeline-drawer-${id}`);
   const btn = drawer.previousElementSibling.querySelector('.btn-timeline-toggle');
   if (drawer.classList.contains('collapsed')) {
@@ -408,7 +426,7 @@ window.toggleTimeline = function(id) {
   }
 };
 
-window.toggleRaw = function(incidentId, index) {
+window.toggleRaw = function (incidentId, index) {
   const container = document.getElementById(`timeline-raw-container-${incidentId}-${index}`);
   if (container.classList.contains('collapsed')) {
     container.classList.remove('collapsed');
@@ -417,7 +435,7 @@ window.toggleRaw = function(incidentId, index) {
   }
 };
 
-window.copyRaw = async function(btn, elementId) {
+window.copyRaw = async function (btn, elementId) {
   const code = document.getElementById(elementId).textContent;
   try {
     await navigator.clipboard.writeText(code);
@@ -513,7 +531,7 @@ async function fetchLogs() {
     const response = await fetch('/api/v1/logs');
     if (!response.ok) throw new Error('Failed to fetch logs');
     const logs = await response.json();
-    
+
     if (logs.length === 0) {
       logTerminal.innerHTML = '<div class="log-entry system"><span class="log-msg">-- No connection events logged yet --</span></div>';
       return;
@@ -523,11 +541,11 @@ async function fetchLogs() {
     logs.forEach(log => {
       const entry = document.createElement('div');
       entry.className = `log-entry ${log.type || 'info'}`;
-      
+
       const timeSpan = document.createElement('span');
       timeSpan.className = 'log-time';
       timeSpan.textContent = new Date(log.timestamp).toLocaleTimeString();
-      
+
       const msgSpan = document.createElement('span');
       msgSpan.className = 'log-msg';
       msgSpan.textContent = log.message;
@@ -547,7 +565,7 @@ async function fetchLogs() {
 // Collapsible drawer toggle handling
 consoleToggle.addEventListener('click', () => {
   isLogsOpen = !isLogsOpen;
-  
+
   if (isLogsOpen) {
     consoleBody.classList.remove('collapsed');
     toggleIndicator.textContent = 'Hide';
@@ -597,7 +615,7 @@ document.addEventListener('DOMContentLoaded', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        
+
         if (res.ok) {
           // Immediate update to show user the simulation result
           await fetchStatus();

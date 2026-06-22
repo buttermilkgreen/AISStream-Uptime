@@ -37,11 +37,12 @@ The backend is built in pure Node.js without heavy frameworks (e.g., Express) to
   * `POST /api/v1/test/resume` (DEV mode only): Clears simulated state and resumes live monitoring of `stream.aisstream.io`.
 * **WebSocket Client**: Establishes a persistent connection to `wss://stream.aisstream.io/v0/stream`, subscribes to shipping vessel position reports in a defined geographical bounding box, and monitors stream state.
 * **Uptime State Machine**: Evaluates current health against five monitored states:
-  * **Pending**: Initial startup state before a connection attempt completes.
+  * **Pending**: Initial startup state before a connection attempt completes. Displays as "Connecting..." with a spinner on the UI.
   * **Up**: Connected to WebSocket and receiving live data messages.
   * **Silent Failure**: WebSocket is open, but no ship messages have arrived for configured `SILENCE_TIMEOUT_SECONDS` (defaults to 15 seconds).
+  * **Service Outage**: Prolonged loss of service. If a silent failure persists beyond `SILENCE_TO_DOWN_TIMEOUT_SECONDS` (defaults to 30 minutes), it escalates to `Down`.
   * **Auth Error**: WebSocket connection rejected due to credentials/API key failure.
-  * **Down**: WebSocket connection dropped or host unreachable (DNS, socket timeout, etc.).
+  * **Down**: WebSocket connection dropped, host unreachable (DNS, socket timeout, etc.), or escalated from a prolonged silent failure.
 * **Log Redaction & Safety**: The system sanitizes log messages using a multi-layered filter (`sanitizeLog`) to prevent accidental API key leaks. It redacts the literal value of `AISSTREAM_API_KEY` and scrubs JSON/Query patterns matching `apiKey`, `key`, or `token`.
 * **Stream Telemetry**: The server tracks message counts and logs 30-second throughput statistics (total reports, average reports/sec) to connection logs.
 
@@ -55,12 +56,13 @@ The server includes a translation layer `interpretError(detailsObj)` that scans 
 To prevent creating separate, fragmented incident records when a connection fluctuates rapidly (e.g. going Down -> Up for 10s -> Down again), the backend enforces a **120-second coalescing window**:
 1. When a new failure occurs, the server queries the database for the most recent incident.
 2. If that incident was resolved **less than 120 seconds ago**, the server deletes the resolution timestamp (re-opens the incident) and appends the new failure details to its existing timeline events.
-3. If the server transitions *directly* between different failure states (e.g. `Down` -> `Auth Error` -> `Silent Failure`), the active incident's database type is updated to `Instability` while retaining the single continuous incident entry.
+3. If the server transitions *directly* between different failure states (e.g. `Down` -> `Auth Error` -> `Silent Failure`), the active incident's database type is updated to `Service Outage` while retaining the single continuous incident entry.
 
-### 2.3 Silent Failure In-Place Updates & Resolution Formatting
+### 2.3 Silent Failure In-Place Updates, Escalation & Resolution Formatting
 To prevent timeline database bloat from polling checks that run every 2 seconds during a long silent failure:
 - **In-Place Updates**: If consecutive failures are of type `Silent Failure`, the backend updates the existing timeline entry in-place instead of appending a new object.
-- **Ongoing State**: During the outage, the database record reads `"No message received since [Timestamp] UTC"`.
+- **Escalation**: If the silent failure continues for longer than `SILENCE_TO_DOWN_TIMEOUT_SECONDS` (defaults to 30 minutes / 1800s), the system automatically updates the incident to a full `"Down"` state, documenting that the connection remains active but no vessel data has been received for the duration.
+- **Ongoing State**: During the outage, the database record reads `"Connection established but no ships received for [Duration]"` using a friendly formatted description.
 - **Resolved State**: When the connection resumes, the backend calculates the exact outage duration and formats it dynamically (seconds, minutes/seconds, or hours/minutes), rewriting the final database summary and matching timeline node to `"No message received for [duration]"`.
 
 ### 2.4 Rate Limiting & Response Caching
@@ -75,6 +77,7 @@ The backend loads configuration settings from a local `.env` file or from the en
 * **`NODE_ENV` / `DEV`**: Setting `NODE_ENV=DEV` or `DEV=true` activates local developer simulation features.
 * **`AISSTREAM_BOUNDING_BOXES`**: A JSON string array defining geographical bounding boxes to subscribe to (defaults to Singapore Strait: `[[[1.15, 103.6], [1.45, 104.1]]]`).
 * **`SILENCE_TIMEOUT_SECONDS`**: Inactivity period in seconds before a connected stream is marked as a `Silent Failure` (defaults to `15`).
+* **`SILENCE_TO_DOWN_TIMEOUT_SECONDS`**: Interval in seconds before escalating a `Silent Failure` to `Down` / `Service Outage` (defaults to `1800` / 30 minutes).
 * **`API_RATE_LIMIT_RPM`**: Maximum requests per minute allowed per client IP (defaults to `60`).
 * **`API_CACHE_TTL_SECONDS`**: Response caching duration in seconds for status and incident history (defaults to `15`).
 
@@ -91,7 +94,7 @@ All downtime windows are tracked persistently using SQLite (`uptime.db`) via the
 | `id` | `INTEGER` | Primary key (Auto-incremented) |
 | `start_time` | `TEXT` | ISO-8601 Timestamp of outage start |
 | `end_time` | `TEXT` | ISO-8601 Timestamp of outage resolution (Null if ongoing) |
-| `outage_type` | `TEXT` | State type: `Down`, `Silent Failure`, or `Auth Error` |
+| `outage_type` | `TEXT` | State type: `Down`, `Silent Failure`, `Service Outage`, or `Auth Error` |
 | `details` | `TEXT` | Structured JSON containing error event logs and raw diagnostics |
 
 ### Incident Timeline JSON Structure (`details`)
