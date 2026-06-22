@@ -114,35 +114,5 @@ Configure the application by setting these environment variables or adding them 
 | `API_RATE_LIMIT_RPM` | `60` | Max API requests permitted per minute per IP address. |
 | `API_CACHE_TTL_SECONDS` | `15` | Lifespan in seconds of cached JSON responses for status/incidents queries. |
 
----
 
-## Setup & Running
-
-### Requirements
-- Node.js (v18+)
-
-### 1. Install Dependencies
-```bash
-npm install
-```
-
-### 2. Run the App
-```bash
-npm start
-```
-Go to `http://localhost:3000` to view the status dashboard.
-
----
-
-## Production Deployment (Docker)
-
-To run the application inside Docker with database persistence, use Docker Compose:
-
-```bash
-docker-compose up -d
-```
-
-This mounts a persistent volume `db_data` mapping to `/app/data/` to keep your outage history across container updates.
-
----
 
