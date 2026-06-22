@@ -2,7 +2,7 @@
 
 A lightweight Node.js daemon and dashboard to monitor the live AIS shipping stream (`stream.aisstream.io`). It tracks WebSocket connection health, alerts on silent streams (where a connection is open but no shipping data is received), logs outages in SQLite, and provides a web dashboard to see the current status at a glance.
 
-You can access the [live service here](https://aisuptime.buttermilkgreen.fyi)  with API docs below. 
+You can access the [live service here](https://aisuptime.buttermilkgreen.fyi) with API docs below. 
 
 ## How it works
 
@@ -58,6 +58,32 @@ Returns a list of past and ongoing outages from the database, ordered newest fir
 
 ### GET `/api/v1/logs`
 Returns the 50 most recent console log messages. *Only accessible if `DEV=true` is set.*
+
+### GET `/api/v1/votes`
+Returns the user consensus vote counts (Agree / Disagree) for the current status state or a specified state, along with the current user's vote.
+- **Query Parameter**: Add `?state=Up` to retrieve votes for a specific state (defaults to the current status state).
+
+Example response:
+```json
+{
+  "up": 12,
+  "down": 3,
+  "userVote": "up"
+}
+```
+
+### POST `/api/v1/vote`
+Casts, updates, or clears a vote on a status state.
+- **Request Body**: `{"state": "Up", "vote": "up"}` (where `vote` can be `"up"`, `"down"`, or `null` to undo/clear the vote).
+
+Example response:
+```json
+{
+  "up": 12,
+  "down": 4,
+  "userVote": "down"
+}
+```
 
 ### POST `/api/v1/test/simulate`
 Forces a simulated outage status. *Only accessible if `DEV=true` is set.*

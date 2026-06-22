@@ -15,7 +15,9 @@ function loadEnv() {
         const parts = trimmed.split('=');
         const key = parts[0].trim();
         const value = parts.slice(1).join('=').trim();
-        process.env[key] = value;
+        if (process.env[key] === undefined) {
+          process.env[key] = value;
+        }
       }
     });
   }
@@ -143,17 +145,43 @@ db.serialize(() => {
     )
   `);
 
+  db.run(`DROP TABLE IF EXISTS status_votes`);
   db.run(`
     CREATE TABLE IF NOT EXISTS status_votes (
-      session_id TEXT NOT NULL,
+      client_ip TEXT NOT NULL,
       status_state TEXT NOT NULL,
       vote_type TEXT NOT NULL,
       timestamp TEXT NOT NULL,
-      PRIMARY KEY (session_id, status_state)
+      PRIMARY KEY (client_ip, status_state)
     )
   `);
 
   // Database is initialized empty. No mock seeding logic.
+});
+
+// Load active incident from database on startup, closing any stale/duplicate active ones
+db.all("SELECT id, start_time FROM incidents WHERE end_time IS NULL ORDER BY start_time DESC", (err, rows) => {
+  if (err) {
+    logEvent(`Failed to query active incidents on startup: ${err.message}`, "error");
+    return;
+  }
+  if (rows && rows.length > 0) {
+    activeIncidentId = rows[0].id;
+    logEvent(`Loaded active incident #${activeIncidentId} on startup.`, "info");
+    
+    if (rows.length > 1) {
+      const idsToClose = rows.slice(1).map(r => r.id);
+      const now = new Date().toISOString();
+      const placeholders = idsToClose.map(() => '?').join(',');
+      db.run(`UPDATE incidents SET end_time = ? WHERE id IN (${placeholders})`, [now, ...idsToClose], (updateErr) => {
+        if (updateErr) {
+          logEvent(`Failed to close stale incidents on startup: ${updateErr.message}`, "error");
+        } else {
+          logEvent(`Closed ${idsToClose.length} stale/duplicate open incidents on startup: ${idsToClose.join(', ')}`, "info");
+        }
+      });
+    }
+  }
 });
 
 // 4. Uptime State variables and Heartbeat History (30 minutes)
@@ -397,12 +425,16 @@ function updateState(newState, detailsObj = null) {
 
   // Transitioning to a non-up state (Down, Silent Failure, Auth Error)
 
-  // If transitioning between different failing states, keep the same incident active
-  if (isOldStateFailing && isNewStateFailing && activeIncidentId !== null) {
-    logEvent(`Transitioning within outage: changing type of #${activeIncidentId} to Service Outage`, "info");
-    db.run("UPDATE incidents SET outage_type = 'Service Outage' WHERE id = ?", [activeIncidentId], (err) => {
-      if (err) logEvent(`Failed to update incident type to Service Outage: ${err.message}`, "error");
-    });
+  // If we already have an active incident, continue using it (and update its state/timeline)
+  if (isNewStateFailing && activeIncidentId !== null) {
+    if (isOldStateFailing) {
+      logEvent(`Transitioning within outage: changing type of #${activeIncidentId} to Service Outage`, "info");
+      db.run("UPDATE incidents SET outage_type = 'Service Outage' WHERE id = ?", [activeIncidentId], (err) => {
+        if (err) logEvent(`Failed to update incident type to Service Outage: ${err.message}`, "error");
+      });
+    } else {
+      logEvent(`Continuing active incident #${activeIncidentId} after state transition from ${oldState} to ${newState}`, "info");
+    }
     appendIncidentEvent(activeIncidentId, newState, detailsObj);
     return;
   }
@@ -820,8 +852,8 @@ const server = http.createServer((req, res) => {
   // API - Get Votes Endpoint
   if (req.url.startsWith('/api/v1/votes') && req.method === 'GET') {
     const urlObj = new URL(req.url, 'http://localhost');
-    const sessionId = urlObj.searchParams.get('session_id') || '';
     const state = urlObj.searchParams.get('state') || currentStatus.state;
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
 
     db.all(
       "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE status_state = ? GROUP BY vote_type",
@@ -839,20 +871,15 @@ const server = http.createServer((req, res) => {
           if (r.vote_type === 'down') downCount = r.count;
         });
 
-        if (sessionId) {
-          db.get(
-            "SELECT vote_type FROM status_votes WHERE session_id = ? AND status_state = ?",
-            [sessionId, state],
-            (err2, row) => {
-              const userVote = row ? row.vote_type : null;
-              res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ up: upCount, down: downCount, userVote }));
-            }
-          );
-        } else {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ up: upCount, down: downCount, userVote: null }));
-        }
+        db.get(
+          "SELECT vote_type FROM status_votes WHERE client_ip = ? AND status_state = ?",
+          [clientIp, state],
+          (err2, row) => {
+            const userVote = row ? row.vote_type : null;
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ up: upCount, down: downCount, userVote }));
+          }
+        );
       }
     );
     return;
@@ -867,25 +894,26 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const payload = JSON.parse(body);
-        const { session_id, state, vote } = payload;
-        if (!session_id || !state) {
+        const { state, vote } = payload;
+        if (!state) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Missing session_id or state' }));
+          res.end(JSON.stringify({ error: 'Missing state' }));
           return;
         }
+        const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
 
         const performVote = (callback) => {
           if (vote === 'up' || vote === 'down') {
             const timestamp = new Date().toISOString();
             db.run(
-              "INSERT OR REPLACE INTO status_votes (session_id, status_state, vote_type, timestamp) VALUES (?, ?, ?, ?)",
-              [session_id, state, vote, timestamp],
+              "INSERT OR REPLACE INTO status_votes (client_ip, status_state, vote_type, timestamp) VALUES (?, ?, ?, ?)",
+              [clientIp, state, vote, timestamp],
               callback
             );
           } else {
             db.run(
-              "DELETE FROM status_votes WHERE session_id = ? AND status_state = ?",
-              [session_id, state],
+              "DELETE FROM status_votes WHERE client_ip = ? AND status_state = ?",
+              [clientIp, state],
               callback
             );
           }

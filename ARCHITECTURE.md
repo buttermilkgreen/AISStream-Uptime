@@ -33,6 +33,8 @@ The backend is built in pure Node.js without heavy frameworks (e.g., Express) to
   * `GET /api/v1/health`: A lightweight check returning `{"status":"ok"}` instantly without database queries or caching.
   * `GET /api/v1/logs` (DEV mode only): Returns the 50 most recent console log messages stored in memory. Returns `403 Forbidden` in production.
   * `GET /api/v1/incidents`: Query historical incidents and active outages ordered reverse-chronologically (`start_time DESC`).
+  * `GET /api/v1/votes`: Query consensus vote counts (Agree / Disagree) for a given status state, along with the caller's active vote.
+  * `POST /api/v1/vote`: Submit, change, or withdraw a vote on a status state.
   * `POST /api/v1/test/simulate` (DEV mode only): Simulates manual state transitions (e.g. `Down`, `Silent Failure`, `Auth Error`, `Up`) with optional custom error message payloads.
   * `POST /api/v1/test/resume` (DEV mode only): Clears simulated state and resumes live monitoring of `stream.aisstream.io`.
 * **WebSocket Client**: Establishes a persistent connection to `wss://stream.aisstream.io/v0/stream`, subscribes to shipping vessel position reports in a defined geographical bounding box, and monitors stream state.
@@ -96,6 +98,11 @@ All downtime windows are tracked persistently using SQLite (`uptime.db`) via the
 | `end_time` | `TEXT` | ISO-8601 Timestamp of outage resolution (Null if ongoing) |
 | `outage_type` | `TEXT` | State type: `Down`, `Silent Failure`, `Service Outage`, or `Auth Error` |
 | `details` | `TEXT` | Structured JSON containing error event logs and raw diagnostics |
+
+### Database Table: `status_votes`
+Used to manage consensus votes for system status states (Agree / Disagree).
+- Restricts voters to one vote per status state to ensure clean consensus data.
+- Stores the active vote type (`up` or `down`) and the timestamp of the vote.
 
 ### Incident Timeline JSON Structure (`details`)
 To track how errors mutate during a single outage (e.g., transitioning from a network drop to successive connection timeouts), the `details` field is stored as a structured timeline payload:

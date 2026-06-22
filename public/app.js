@@ -59,11 +59,6 @@ const STATE_CONFIGS = {
 };
 
 // Session and Vote Management
-let sessionId = localStorage.getItem('ais_uptime_session_id');
-if (!sessionId) {
-  sessionId = 'sess_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-  localStorage.setItem('ais_uptime_session_id', sessionId);
-}
 let currentBannerState = null;
 
 async function updateVotes(state) {
@@ -83,7 +78,7 @@ async function updateVotes(state) {
   statusVoting.style.display = 'flex';
 
   try {
-    const res = await fetch(`/api/v1/votes?session_id=${sessionId}&state=${encodeURIComponent(state)}`);
+    const res = await fetch(`/api/v1/votes?state=${encodeURIComponent(state)}`);
     if (res.ok) {
       const data = await res.json();
       // Ensure the state hasn't changed while we were fetching
@@ -127,7 +122,6 @@ async function castVote(voteType) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        session_id: sessionId,
         state: currentBannerState,
         vote: targetVote
       })
