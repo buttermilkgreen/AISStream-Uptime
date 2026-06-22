@@ -58,6 +58,104 @@ const STATE_CONFIGS = {
   }
 };
 
+// Session and Vote Management
+let sessionId = localStorage.getItem('ais_uptime_session_id');
+if (!sessionId) {
+  sessionId = 'sess_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  localStorage.setItem('ais_uptime_session_id', sessionId);
+}
+let currentBannerState = null;
+
+async function updateVotes(state) {
+  const statusVoting = document.getElementById('status-voting');
+  const voteUpBtn = document.getElementById('vote-up-btn');
+  const voteDownBtn = document.getElementById('vote-down-btn');
+  const voteUpCount = document.getElementById('vote-up-count');
+  const voteDownCount = document.getElementById('vote-down-count');
+
+  if (!statusVoting || !voteUpBtn || !voteDownBtn || !voteUpCount || !voteDownCount) return;
+
+  if (state === 'Pending') {
+    statusVoting.style.display = 'none';
+    return;
+  }
+
+  statusVoting.style.display = 'flex';
+
+  try {
+    const res = await fetch(`/api/v1/votes?session_id=${sessionId}&state=${encodeURIComponent(state)}`);
+    if (res.ok) {
+      const data = await res.json();
+      // Ensure the state hasn't changed while we were fetching
+      if (currentBannerState !== state) return;
+
+      voteUpCount.textContent = data.up;
+      voteDownCount.textContent = data.down;
+
+      if (data.userVote === 'up') {
+        voteUpBtn.classList.add('active');
+        voteDownBtn.classList.remove('active');
+      } else if (data.userVote === 'down') {
+        voteDownBtn.classList.add('active');
+        voteUpBtn.classList.remove('active');
+      } else {
+        voteUpBtn.classList.remove('active');
+        voteDownBtn.classList.remove('active');
+      }
+    }
+  } catch (err) {
+    console.error("Failed to fetch votes:", err);
+  }
+}
+
+async function castVote(voteType) {
+  if (!currentBannerState || currentBannerState === 'Pending') return;
+
+  const voteUpBtn = document.getElementById('vote-up-btn');
+  const voteDownBtn = document.getElementById('vote-down-btn');
+  if (!voteUpBtn || !voteDownBtn) return;
+
+  let targetVote = voteType;
+  if (voteType === 'up' && voteUpBtn.classList.contains('active')) {
+    targetVote = null;
+  } else if (voteType === 'down' && voteDownBtn.classList.contains('active')) {
+    targetVote = null;
+  }
+
+  try {
+    const res = await fetch('/api/v1/vote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: sessionId,
+        state: currentBannerState,
+        vote: targetVote
+      })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      // Ensure state hasn't changed since casting vote
+      if (data.userVote !== targetVote) return;
+
+      document.getElementById('vote-up-count').textContent = data.up;
+      document.getElementById('vote-down-count').textContent = data.down;
+
+      if (data.userVote === 'up') {
+        voteUpBtn.classList.add('active');
+        voteDownBtn.classList.remove('active');
+      } else if (data.userVote === 'down') {
+        voteDownBtn.classList.add('active');
+        voteUpBtn.classList.remove('active');
+      } else {
+        voteUpBtn.classList.remove('active');
+        voteDownBtn.classList.remove('active');
+      }
+    }
+  } catch (err) {
+    console.error("Failed to cast vote:", err);
+  }
+}
+
 // DOM Elements
 const statusBanner = document.getElementById('status-banner');
 const statusBannerIcon = document.getElementById('status-banner-icon');
@@ -117,6 +215,9 @@ function updateUI(state, lastChecked, silenceTimeout) {
   } else {
     lastCheckedEl.textContent = 'Unknown';
   }
+
+  currentBannerState = state;
+  updateVotes(state);
 }
 
 /**
@@ -233,7 +334,7 @@ function renderIncidentHistory(incidents) {
 
       const stateTitleMap = {
         'Down': 'Complete Loss of Service',
-        'Silent Failure': 'Connected but No Data',
+        'Silent Failure': 'Silent Failure: Connected but No Data Received',
         'Service Outage': 'Complete Loss of Service',
         'Auth Error': 'Authentication Failure'
       };
@@ -586,6 +687,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const simButtons = document.querySelectorAll('#developer-hud .hud-btn[data-state]');
   const payloadField = document.getElementById('sim-error-payload');
   const resumeBtn = document.getElementById('btn-resume-live');
+
+  // Setup Status Voting event listeners
+  const voteUpBtn = document.getElementById('vote-up-btn');
+  const voteDownBtn = document.getElementById('vote-down-btn');
+  if (voteUpBtn) {
+    voteUpBtn.addEventListener('click', () => castVote('up'));
+  }
+  if (voteDownBtn) {
+    voteDownBtn.addEventListener('click', () => castVote('down'));
+  }
 
   simButtons.forEach(btn => {
     btn.addEventListener('click', async () => {

@@ -66,14 +66,14 @@ const ipRequests = new Map();
 function isRateLimited(ip) {
   const now = Date.now();
   const oneMinuteAgo = now - 60000;
-  
+
   let timestamps = ipRequests.get(ip) || [];
   timestamps = timestamps.filter(t => t > oneMinuteAgo);
-  
+
   if (timestamps.length >= RATE_LIMIT_RPM) {
     return true;
   }
-  
+
   timestamps.push(now);
   ipRequests.set(ip, timestamps);
   return false;
@@ -143,6 +143,16 @@ db.serialize(() => {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS status_votes (
+      session_id TEXT NOT NULL,
+      status_state TEXT NOT NULL,
+      vote_type TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      PRIMARY KEY (session_id, status_state)
+    )
+  `);
+
   // Database is initialized empty. No mock seeding logic.
 });
 
@@ -161,15 +171,15 @@ let currentStatus = {
  */
 function interpretError(detailsObj) {
   if (!detailsObj) return "No further details logged.";
-  
+
   const msg = detailsObj.message || "";
   const rawStr = JSON.stringify(detailsObj.raw || detailsObj).toLowerCase();
-  
+
   // 1. Auth Failures
   if (rawStr.includes("1008") || rawStr.includes("auth") || rawStr.includes("key") || msg.toLowerCase().includes("key")) {
     return "Authentication failure: The provided API key is invalid or rejected by the server.";
   }
-  
+
   // 2. Service-level gateway issues
   if (rawStr.includes("503") || msg.includes("503")) {
     return "AISStream Server Overloaded (503 Service Temporarily Unavailable).";
@@ -183,7 +193,7 @@ function interpretError(detailsObj) {
   if (rawStr.includes("429") || msg.includes("429")) {
     return "Rate Limit Exceeded (429) - Too many connections requested.";
   }
-  
+
   // 3. Socket-level issues
   if (rawStr.includes("enotfound")) {
     return "Local network disconnected (DNS Lookup Failed).";
@@ -194,12 +204,12 @@ function interpretError(detailsObj) {
   if (rawStr.includes("econnrefused")) {
     return "Connection refused - The server port is closed or offline.";
   }
-  
+
   // 4. Inactivity
   if (msg.includes("No message received")) {
     return msg;
   }
-  
+
   return msg || "Connection dropped or unreachable.";
 }
 
@@ -304,10 +314,10 @@ function updateState(newState, detailsObj = null) {
   invalidateCache();
   const oldState = currentStatus.state;
   currentStatus.lastChecked = new Date().toISOString();
-  
+
   const isOldStateFailing = oldState !== "Up" && oldState !== "Pending";
   const isNewStateFailing = newState !== "Up" && newState !== "Pending";
-  
+
   if (oldState === newState) {
     // If state is the same, but we are in a failing state and have new details, append to the timeline
     if (isNewStateFailing && detailsObj && activeIncidentId !== null) {
@@ -337,10 +347,10 @@ function updateState(newState, detailsObj = null) {
           let timelineDetails = { summary: "", errors: [] };
           try {
             timelineDetails = JSON.parse(row.details) || timelineDetails;
-          } catch (e) {}
+          } catch (e) { }
 
-          const isSilent = row.outage_type === "Silent Failure" || 
-                           (row.outage_type === "Service Outage" && timelineDetails.errors.some(e => e.type === "Silent Failure"));
+          const isSilent = row.outage_type === "Silent Failure" ||
+            (row.outage_type === "Service Outage" && timelineDetails.errors.some(e => e.type === "Silent Failure"));
 
           if (isSilent) {
             const startMs = new Date(row.start_time).getTime();
@@ -386,7 +396,7 @@ function updateState(newState, detailsObj = null) {
   }
 
   // Transitioning to a non-up state (Down, Silent Failure, Auth Error)
-  
+
   // If transitioning between different failing states, keep the same incident active
   if (isOldStateFailing && isNewStateFailing && activeIncidentId !== null) {
     logEvent(`Transitioning within outage: changing type of #${activeIncidentId} to Service Outage`, "info");
@@ -402,7 +412,7 @@ function updateState(newState, detailsObj = null) {
     if (!err && lastInc && lastInc.end_time) {
       const resolutionTime = new Date(lastInc.end_time).getTime();
       const secondsSinceResolution = (Date.now() - resolutionTime) / 1000;
-      
+
       if (secondsSinceResolution < 120) {
         // Re-open!
         activeIncidentId = lastInc.id;
@@ -487,11 +497,11 @@ function connectAISStream() {
   if (wsClient) {
     try {
       wsClient.terminate();
-    } catch (e) {}
+    } catch (e) { }
   }
 
   logEvent("Attempting to connect to stream.aisstream.io...", "info");
-  
+
   try {
     wsClient = new WebSocket("wss://stream.aisstream.io/v0/stream");
   } catch (err) {
@@ -544,12 +554,12 @@ function connectAISStream() {
     messageCounter++;
     lastMessageTime = Date.now();
     currentStatus.lastMessageReceived = new Date().toISOString();
-    
+
     // Parse message metadata if needed
     let parsed = null;
     try {
       parsed = JSON.parse(data.toString());
-    } catch (e) {}
+    } catch (e) { }
 
     if (!hasReceivedDataSinceConnect) {
       hasReceivedDataSinceConnect = true;
@@ -572,15 +582,15 @@ function connectAISStream() {
     clearTimeout(connectionTimeout);
     const reasonStr = reason.toString() || 'None';
     logEvent(`WebSocket connection closed. Code: ${code}, Reason: ${reasonStr}`, "warning");
-    
+
     if (simulatedModeActive) {
       lastSocketError = null;
       scheduleReconnect();
       return;
     }
-    
+
     const duration = Date.now() - connectionOpenTime;
-    
+
     const errorDetails = {
       message: "",
       raw: {
@@ -589,7 +599,7 @@ function connectAISStream() {
         socketError: lastSocketError ? { message: lastSocketError.message, code: lastSocketError.code } : null
       }
     };
-    
+
     // Determine state on close
     if (code === 1008 || reasonStr.toLowerCase().includes("key") || (!hasReceivedDataSinceConnect && duration < 5000 && duration > 0)) {
       logEvent("Authentication failed or rejected by server.", "error");
@@ -604,7 +614,7 @@ function connectAISStream() {
       }
       updateState("Down", errorDetails);
     }
-    
+
     lastSocketError = null;
     scheduleReconnect();
   });
@@ -632,19 +642,19 @@ function scheduleReconnect() {
  */
 function startSilenceCheck() {
   if (silenceCheckInterval) clearInterval(silenceCheckInterval);
-  
+
   silenceCheckInterval = setInterval(() => {
     if (simulatedModeActive) return;
     if (wsClient && wsClient.readyState === WebSocket.OPEN) {
       const checkStartTime = hasReceivedDataSinceConnect ? lastMessageTime : connectionOpenTime;
       if (checkStartTime === 0) return; // Connection established but open time not recorded yet
-      
+
       const secondsSinceLastMessage = (Date.now() - checkStartTime) / 1000;
-      
+
       if (secondsSinceLastMessage > SILENCE_TO_DOWN_TIMEOUT) {
         const friendlyDuration = formatDuration(secondsSinceLastMessage);
-        const detailedMsg = `Connection established but no ships received for ${friendlyDuration}.`;
-        
+        const detailedMsg = `Connection established but no ship data received for ${friendlyDuration}.`;
+
         logEvent(`Escalating to Down: ${detailedMsg}`, "error");
         updateState("Down", {
           message: detailedMsg,
@@ -656,8 +666,8 @@ function startSilenceCheck() {
         });
       } else if (secondsSinceLastMessage > SILENCE_TIMEOUT) {
         const friendlyDuration = formatDuration(secondsSinceLastMessage);
-        const detailedMsg = `Connection established but no ships received for ${friendlyDuration}.`;
-        
+        const detailedMsg = `Connection established but no ship data received for ${friendlyDuration}.`;
+
         logEvent(`Silent Failure detected: ${detailedMsg}`, "warning");
         updateState("Silent Failure", {
           message: detailedMsg,
@@ -740,7 +750,7 @@ const server = http.createServer((req, res) => {
     }
 
     const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    
+
     db.all(
       "SELECT start_time, end_time, outage_type FROM incidents WHERE end_time IS NULL OR end_time >= ?",
       [cutoffTime],
@@ -807,6 +817,116 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // API - Get Votes Endpoint
+  if (req.url.startsWith('/api/v1/votes') && req.method === 'GET') {
+    const urlObj = new URL(req.url, 'http://localhost');
+    const sessionId = urlObj.searchParams.get('session_id') || '';
+    const state = urlObj.searchParams.get('state') || currentStatus.state;
+
+    db.all(
+      "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE status_state = ? GROUP BY vote_type",
+      [state],
+      (err, rows) => {
+        if (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err.message }));
+          return;
+        }
+        let upCount = 0;
+        let downCount = 0;
+        rows.forEach(r => {
+          if (r.vote_type === 'up') upCount = r.count;
+          if (r.vote_type === 'down') downCount = r.count;
+        });
+
+        if (sessionId) {
+          db.get(
+            "SELECT vote_type FROM status_votes WHERE session_id = ? AND status_state = ?",
+            [sessionId, state],
+            (err2, row) => {
+              const userVote = row ? row.vote_type : null;
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ up: upCount, down: downCount, userVote }));
+            }
+          );
+        } else {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ up: upCount, down: downCount, userVote: null }));
+        }
+      }
+    );
+    return;
+  }
+
+  // API - Cast Vote Endpoint
+  if (req.url === '/api/v1/vote' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk.toString();
+    });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body);
+        const { session_id, state, vote } = payload;
+        if (!session_id || !state) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing session_id or state' }));
+          return;
+        }
+
+        const performVote = (callback) => {
+          if (vote === 'up' || vote === 'down') {
+            const timestamp = new Date().toISOString();
+            db.run(
+              "INSERT OR REPLACE INTO status_votes (session_id, status_state, vote_type, timestamp) VALUES (?, ?, ?, ?)",
+              [session_id, state, vote, timestamp],
+              callback
+            );
+          } else {
+            db.run(
+              "DELETE FROM status_votes WHERE session_id = ? AND status_state = ?",
+              [session_id, state],
+              callback
+            );
+          }
+        };
+
+        performVote((err) => {
+          if (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: err.message }));
+            return;
+          }
+
+          // Get updated counts for the client
+          db.all(
+            "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE status_state = ? GROUP BY vote_type",
+            [state],
+            (errCount, rows) => {
+              if (errCount) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: errCount.message }));
+                return;
+              }
+              let upCount = 0;
+              let downCount = 0;
+              rows.forEach(r => {
+                if (r.vote_type === 'up') upCount = r.count;
+                if (r.vote_type === 'down') downCount = r.count;
+              });
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ up: upCount, down: downCount, userVote: vote || null }));
+            }
+          );
+        });
+      } catch (jsonErr) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+      }
+    });
+    return;
+  }
+
   // API - Simulate Outage (Dev Mode only)
   if (req.url === '/api/v1/test/simulate' && req.method === 'POST') {
     if (!isDevMode) {
@@ -823,7 +943,7 @@ const server = http.createServer((req, res) => {
       try {
         const payload = JSON.parse(body);
         const { state, message, raw } = payload;
-        
+
         if (!state) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Missing required state field.' }));
@@ -832,7 +952,7 @@ const server = http.createServer((req, res) => {
 
         logEvent(`Simulating outage status update to: ${state}`, 'info');
         simulatedModeActive = true;
-        
+
         // Formulate detailsObj matching timeline expected details
         let detailsObj = null;
         if (message || raw) {
@@ -841,9 +961,9 @@ const server = http.createServer((req, res) => {
             raw: raw || null
           };
         }
-        
+
         updateState(state, detailsObj);
-        
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, state, simulated: simulatedModeActive }));
       } catch (err) {
@@ -864,7 +984,7 @@ const server = http.createServer((req, res) => {
 
     logEvent('Resuming live monitor from simulation mode...', 'info');
     simulatedModeActive = false;
-    
+
     // Clear ws state, transition back to Pending, and reconnect
     updateState('Pending');
     connectAISStream();
