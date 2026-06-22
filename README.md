@@ -16,7 +16,7 @@ You can access the [live service here](https://aisuptime.buttermilkgreen.fyi) wi
 
 ## API Reference
 
-### GET `/api/v1/health`
+#### GET `/api/v1/health`
 A simple check to verify the HTTP server is responsive.
 ```json
 {
@@ -24,7 +24,7 @@ A simple check to verify the HTTP server is responsive.
 }
 ```
 
-### GET `/api/v1/status`
+#### GET `/api/v1/status`
 Returns the current monitoring state, active settings, and a rolling 24-hour heartbeat grid.
 - **Query Parameter**: Add `?simple=true` to skip database queries and get only the live connection metadata.
 
@@ -42,7 +42,7 @@ Example response:
 }
 ```
 
-### GET `/api/v1/incidents`
+#### GET `/api/v1/incidents`
 Returns a list of past and ongoing outages from the database, ordered newest first.
 ```json
 [
@@ -56,10 +56,9 @@ Returns a list of past and ongoing outages from the database, ordered newest fir
 ]
 ```
 
-### GET `/api/v1/logs`
-Returns the 50 most recent console log messages. *Only accessible if `DEV=true` is set.*
 
-### GET `/api/v1/votes`
+
+#### GET `/api/v1/votes`
 Returns the user consensus vote counts (Agree / Disagree) for the current status state or a specified state, along with the current user's vote.
 - **Query Parameter**: Add `?state=Up` to retrieve votes for a specific state (defaults to the current status state).
 
@@ -72,7 +71,7 @@ Example response:
 }
 ```
 
-### POST `/api/v1/vote`
+#### POST `/api/v1/vote`
 Casts, updates, or clears a vote on a status state.
 - **Request Body**: `{"state": "Up", "vote": "up"}` (where `vote` can be `"up"`, `"down"`, or `null` to undo/clear the vote).
 
@@ -85,11 +84,16 @@ Example response:
 }
 ```
 
-### POST `/api/v1/test/simulate`
+### Dev only queries (if you are self hosting)
+
+#### GET `/api/v1/logs`
+Returns the 50 most recent console log messages. *Only accessible if `DEV=true` is set.*
+
+#### POST `/api/v1/test/simulate`
 Forces a simulated outage status. *Only accessible if `DEV=true` is set.*
 - **Request Body**: `{"state": "Silent Failure"}`
 
-### POST `/api/v1/test/resume`
+#### POST `/api/v1/test/resume`
 Resumes live monitoring and cancels the active simulation. *Only accessible if `DEV=true` is set.*
 
 
@@ -103,7 +107,7 @@ Configure the application by setting these environment variables or adding them 
 | :--- | :--- | :--- |
 | `AISSTREAM_API_KEY` | *None (Required)* | Your secret API key from `aisstream.io`. |
 | `PORT` | `3000` | The port number on which the HTTP server and dashboard run. |
-| `DEV` / `NODE_ENV` | `false` / `production` | Set `DEV=true` or `NODE_ENV=DEV` to enable dashboard simulation tools and developer logs. |
+| `DEV` | `false` / `production` | Set `DEV=true` to enable dashboard simulation tools and developer logs. |
 | `AISSTREAM_BOUNDING_BOXES` | `[[[1.15, 103.6], [1.45, 104.1]]]` | A JSON array defining coordinate bounding boxes to subscribe to (defaults to the Singapore Strait). |
 | `SILENCE_TIMEOUT_SECONDS` | `15` | Seconds of inactivity on the socket before declaring a `Silent Failure`. |
 | `SILENCE_TO_DOWN_TIMEOUT_SECONDS` | `1800` (30 mins) | Seconds a stream can remain in `Silent Failure` before being classified as `Down`. |
