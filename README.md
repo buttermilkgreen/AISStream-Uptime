@@ -84,17 +84,17 @@ Example response:
 }
 ```
 
-### Dev only queries (if you are self hosting)
+### Dev only queries (if you are self hosting and `DEV=true` is set.)
 
 #### GET `/api/v1/logs`
-Returns the 50 most recent console log messages. *Only accessible if `DEV=true` is set.*
+Returns the 50 most recent console log messages.
 
 #### POST `/api/v1/test/simulate`
-Forces a simulated outage status. *Only accessible if `DEV=true` is set.*
+Forces a simulated outage status. 
 - **Request Body**: `{"state": "Silent Failure"}`
 
 #### POST `/api/v1/test/resume`
-Resumes live monitoring and cancels the active simulation. *Only accessible if `DEV=true` is set.*
+Resumes live monitoring and cancels the active simulation.
 
 
 ---
