@@ -101,7 +101,7 @@ Resumes live monitoring and cancels the active simulation.
 
 ## Environment Variables
 
-Configure the application by setting these environment variables or adding them to a `.env` file in the project root:
+If self hosting, you can configure these environment variables or add them to a `.env` file in the project root:
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
