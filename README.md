@@ -2,7 +2,7 @@
 
 A lightweight Node.js daemon and dashboard to monitor the live AIS shipping stream (`stream.aisstream.io`). It tracks WebSocket connection health, alerts on silent streams (where a connection is open but no shipping data is received), logs outages in SQLite, and provides a web dashboard to see the current status at a glance.
 
-You can access the live service here with API docs below. 
+You can access the [live service here](https://aisuptime.buttermilkgreen.fyi)  with API docs below. 
 
 ## How it works
 
@@ -15,8 +15,6 @@ You can access the live service here with API docs below.
 3. **Flap Protection**: If the connection drops and reconnects within 120 seconds, it appends the events to the same outage incident instead of creating fragmented logs.
 
 ## API Reference
-
-All endpoints return JSON and are rate-limited to the configured RPM per IP.
 
 ### GET `/api/v1/health`
 A simple check to verify the HTTP server is responsive.
