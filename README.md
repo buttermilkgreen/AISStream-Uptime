@@ -11,7 +11,23 @@ A lightweight Node.js daemon and dashboard to monitor the live AIS shipping stre
    - `Auth Error`: Rejected due to an invalid API key.
    - `Down`: Disconnected or network unreachable.
 3. **Flap Protection**: If the connection drops and reconnects within 120 seconds, it appends the events to the same outage incident instead of creating fragmented logs.
-4. **Log Redaction**: All logged errors are sanitized to scrub API keys and token strings before writing to the database.
+
+---
+
+## Environment Variables
+
+Configure the application by setting these environment variables or adding them to a `.env` file in the project root:
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `AISSTREAM_API_KEY` | *None (Required)* | Your secret API key from `aisstream.io`. |
+| `PORT` | `3000` | The port number on which the HTTP server and dashboard run. |
+| `DEV` / `NODE_ENV` | `false` / `production` | Set `DEV=true` or `NODE_ENV=DEV` to enable dashboard simulation tools and developer logs. |
+| `AISSTREAM_BOUNDING_BOXES` | `[[[1.15, 103.6], [1.45, 104.1]]]` | A JSON array defining coordinate bounding boxes to subscribe to (defaults to the Singapore Strait). |
+| `SILENCE_TIMEOUT_SECONDS` | `15` | Seconds of inactivity on the socket before declaring a `Silent Failure`. |
+| `SILENCE_TO_DOWN_TIMEOUT_SECONDS` | `1800` (30 mins) | Seconds a stream can remain in `Silent Failure` before being classified as `Down`. |
+| `API_RATE_LIMIT_RPM` | `60` | Max API requests permitted per minute per IP address. |
+| `API_CACHE_TTL_SECONDS` | `15` | Lifespan in seconds of cached JSON responses for status/incidents queries. |
 
 ---
 
@@ -25,17 +41,7 @@ A lightweight Node.js daemon and dashboard to monitor the live AIS shipping stre
 npm install
 ```
 
-### 2. Configure Environment
-Create a `.env` file in the root directory:
-```env
-AISSTREAM_API_KEY=your_key_here
-PORT=3000
-DEV=true
-SILENCE_TIMEOUT_SECONDS=15
-```
-*Note: Setting `DEV=true` enables testing routes and the developer console on the dashboard.*
-
-### 3. Start the Server
+### 2. Run the App
 ```bash
 npm start
 ```
@@ -57,7 +63,7 @@ This mounts a persistent volume `db_data` mapping to `/app/data/` to keep your o
 
 ## API Reference
 
-All endpoints return JSON and are rate-limited to 60 requests per minute per IP.
+All endpoints return JSON and are rate-limited to the configured RPM per IP.
 
 ### GET `/api/v1/health`
 A simple check to verify the HTTP server is responsive.
