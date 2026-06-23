@@ -125,6 +125,69 @@
         </div>
       </section>
 
+      <!-- Admin Dashboard Section -->
+      <section id="admin-dashboard" class="dashboard-section" style="display: none;">
+        <div class="dashboard-header">
+          <h2 class="dashboard-title">Admin API Usage Dashboard</h2>
+          <span class="dashboard-subtitle">Direct API Requests Only (Excludes Frontend)</span>
+        </div>
+        
+        <!-- Unique IPs Metric Cards -->
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <span class="metric-label">Active Users (24h)</span>
+            <span id="metric-ips-24h" class="metric-value">0</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Active Users (7d)</span>
+            <span id="metric-ips-7d" class="metric-value">0</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Active Users (30d)</span>
+            <span id="metric-ips-30d" class="metric-value">0</span>
+          </div>
+        </div>
+
+        <!-- Charts Grid -->
+        <div class="dashboard-grid">
+          <div class="dashboard-card main-chart-card">
+            <h3>Request Volume (Last 30 Days)</h3>
+            <div class="chart-container">
+              <canvas id="chart-daily-volume"></canvas>
+            </div>
+          </div>
+          <div class="dashboard-card pie-chart-card">
+            <h3>Endpoint Distribution</h3>
+            <div class="chart-container">
+              <canvas id="chart-endpoints"></canvas>
+            </div>
+          </div>
+          <div class="dashboard-card pie-chart-card">
+            <h3>Status Codes</h3>
+            <div class="chart-container">
+              <canvas id="chart-status-codes"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Top Consumers Table -->
+        <div class="dashboard-card table-card" style="margin-top: 1.5rem;">
+          <h3>Top 10 API Consumers</h3>
+          <div class="table-container">
+            <table class="dashboard-table">
+              <thead>
+                <tr>
+                  <th>IP Address</th>
+                  <th>Total Requests</th>
+                </tr>
+              </thead>
+              <tbody id="top-consumers-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
 
     </main>
 
@@ -215,6 +278,7 @@
   </div>
 
   <!-- Script -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="app.js?v=2"></script>
 </body>
 

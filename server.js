@@ -195,7 +195,43 @@ db.serialize(() => {
     )
   `);
 
-  // Database is initialized empty. No mock seeding logic.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS api_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT NOT NULL,
+      ip TEXT NOT NULL,
+      endpoint TEXT NOT NULL,
+      status_code INTEGER NOT NULL,
+      response_time_ms INTEGER NOT NULL
+    )
+  `);
+
+  // Seed dummy logs for visualization if empty
+  db.get("SELECT COUNT(*) AS count FROM api_logs", (err, row) => {
+    if (!err && row && row.count === 0) {
+      logEvent("Seeding dummy API logs for visualization...", "info");
+      const endpoints = ['/api/v1/status', '/api/v1/incidents', '/api/v1/votes'];
+      const ips = ['192.168.1.50', '8.8.8.8', '1.1.1.1', '10.0.0.5', '172.16.0.2', '82.10.45.12', '90.4.52.88'];
+      const statusCodes = [200, 200, 200, 429, 200, 401, 500];
+      
+      const stmt = db.prepare("INSERT INTO api_logs (timestamp, ip, endpoint, status_code, response_time_ms) VALUES (?, ?, ?, ?, ?)");
+      const now = Date.now();
+      
+      // Generate around 200 requests spread over the last 30 days
+      for (let i = 0; i < 200; i++) {
+        const daysAgo = Math.floor(Math.random() * 30);
+        const hoursAgo = Math.floor(Math.random() * 24);
+        const timestamp = new Date(now - (daysAgo * 24 * 60 * 60 * 1000) - (hoursAgo * 60 * 60 * 1000)).toISOString();
+        const ip = ips[Math.floor(Math.random() * ips.length)];
+        const endpoint = endpoints[Math.floor(Math.random() * endpoints.length)];
+        const statusCode = statusCodes[Math.floor(Math.random() * statusCodes.length)];
+        const responseTime = Math.floor(Math.random() * 150) + 10;
+        
+        stmt.run(timestamp, ip, endpoint, statusCode, responseTime);
+      }
+      stmt.finalize();
+    }
+  });
 });
 
 // Load active incident from database on startup, closing any stale/duplicate active ones
@@ -861,9 +897,25 @@ function startSilenceCheck() {
   }, 2000);
 }
 
+/**
+ * Periodically deletes API request logs older than 30 days.
+ */
+function pruneApiLogs() {
+  const cutoffTime = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  db.run("DELETE FROM api_logs WHERE timestamp < ?", [cutoffTime], (err) => {
+    if (err) {
+      logEvent(`Failed to prune API logs: ${err.message}`, "error");
+    } else {
+      logEvent(`API logs pruned. Removed records older than ${30} days.`, "info");
+    }
+  });
+}
+
 // Start polling checks
 connectAISStream();
 startSilenceCheck();
+pruneApiLogs();
+setInterval(pruneApiLogs, 24 * 60 * 60 * 1000); // Clean once a day
 
 // 4. HTTP API and Static Server
 const mimeTypes = {
@@ -882,6 +934,46 @@ const server = http.createServer((req, res) => {
     req.socket.destroy();
     return;
   }
+
+  const startTime = Date.now();
+  res.on('finish', () => {
+    const url = req.url || '';
+    if (url.startsWith('/api/v1/')) {
+      const referer = req.headers['referer'];
+      const origin = req.headers['origin'];
+      const host = req.headers['host'];
+      
+      let isFromSameHost = false;
+      if (host) {
+        if (referer && referer.includes(host)) {
+          isFromSameHost = true;
+        }
+        if (origin && origin.includes(host)) {
+          isFromSameHost = true;
+        }
+      }
+      
+      const isWebFrontend = req.headers['x-app-source'] === 'web-frontend' || isFromSameHost;
+      const isAdmin = url.startsWith('/api/v1/admin/');
+      const isHealth = url === '/api/v1/health';
+      
+      if (!isWebFrontend && !isAdmin && !isHealth) {
+        const responseTime = Date.now() - startTime;
+        const statusCode = res.statusCode;
+        const endpoint = url.split('?')[0];
+        
+        db.run(
+          `INSERT INTO api_logs (timestamp, ip, endpoint, status_code, response_time_ms) VALUES (?, ?, ?, ?, ?)`,
+          [new Date().toISOString(), clientIp, endpoint, statusCode, responseTime],
+          (err) => {
+            if (err) {
+              console.error('Error logging API usage:', err.message);
+            }
+          }
+        );
+      }
+    }
+  });
 
   // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -1220,6 +1312,83 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(payload);
     });
+    return;
+  }
+
+  // API - Get Admin API Usage Stats (Protected by ADMIN_API_KEY)
+  if (req.url === '/api/v1/admin/api-usage' && req.method === 'GET') {
+    const authHeader = req.headers['authorization'];
+    const adminKey = process.env.ADMIN_API_KEY;
+
+    if (!adminKey) {
+      res.writeHead(501, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Server configuration error: ADMIN_API_KEY is not set.' }));
+      return;
+    }
+
+    let authenticated = false;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const sentToken = authHeader.substring(7);
+      authenticated = safeCompare(sentToken, adminKey);
+    }
+
+    if (!authenticated) {
+      const attempts = (adminFailuresByIp.get(clientIp) || 0) + 1;
+      adminFailuresByIp.set(clientIp, attempts);
+      logEvent(`Failed admin authentication attempt from ${clientIp}. Total attempts: ${attempts}`, "warning");
+      
+      if (attempts >= 3) {
+        bannedIPs.add(clientIp);
+        logEvent(`IP ${clientIp} has been banned due to consecutive admin authentication failures.`, "error");
+      }
+
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized: Invalid admin key.' }));
+      return;
+    }
+
+    adminFailuresByIp.delete(clientIp);
+
+    const runQuery = (sql, params = []) => {
+      return new Promise((resolve, reject) => {
+        db.all(sql, params, (err, rows) => {
+          if (err) reject(err);
+          else resolve(rows);
+        });
+      });
+    };
+
+    const now = new Date();
+    const time24h = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    const time7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const time30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    Promise.all([
+      runQuery("SELECT COUNT(DISTINCT ip) AS count FROM api_logs WHERE timestamp >= ?", [time24h]),
+      runQuery("SELECT COUNT(DISTINCT ip) AS count FROM api_logs WHERE timestamp >= ?", [time7d]),
+      runQuery("SELECT COUNT(DISTINCT ip) AS count FROM api_logs WHERE timestamp >= ?", [time30d]),
+      runQuery("SELECT strftime('%Y-%m-%d', timestamp) AS date, COUNT(*) AS count FROM api_logs WHERE timestamp >= ? GROUP BY date ORDER BY date ASC", [time30d]),
+      runQuery("SELECT endpoint, COUNT(*) AS count FROM api_logs GROUP BY endpoint ORDER BY count DESC"),
+      runQuery("SELECT status_code, COUNT(*) AS count FROM api_logs GROUP BY status_code ORDER BY count DESC"),
+      runQuery("SELECT ip, COUNT(*) AS count FROM api_logs GROUP BY ip ORDER BY count DESC LIMIT 10")
+    ]).then(([unique24h, unique7d, unique30d, dailyVolume, endpoints, statusCodes, topConsumers]) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        uniqueIPs: {
+          last24h: unique24h[0] ? unique24h[0].count : 0,
+          last7d: unique7d[0] ? unique7d[0].count : 0,
+          last30d: unique30d[0] ? unique30d[0].count : 0
+        },
+        dailyVolume,
+        endpoints,
+        statusCodes,
+        topConsumers
+      }));
+    }).catch(err => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    });
+
     return;
   }
 

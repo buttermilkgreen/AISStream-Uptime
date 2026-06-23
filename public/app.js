@@ -1,3 +1,29 @@
+// Intercept all fetch requests to inject X-App-Source header for relative calls
+(function() {
+  const originalFetch = window.fetch;
+  window.fetch = function(input, init) {
+    init = init || {};
+    init.headers = init.headers || {};
+    
+    let isRelativeOrSameOrigin = false;
+    if (typeof input === 'string') {
+      if (input.startsWith('/') || input.startsWith(window.location.origin)) {
+        isRelativeOrSameOrigin = true;
+      }
+    }
+    
+    if (isRelativeOrSameOrigin) {
+      if (init.headers instanceof Headers) {
+        init.headers.set('X-App-Source', 'web-frontend');
+      } else {
+        init.headers['X-App-Source'] = 'web-frontend';
+      }
+    }
+    
+    return originalFetch(input, init);
+  };
+})();
+
 function escapeHtml(text) {
   if (typeof text !== 'string') return JSON.stringify(text);
   return text
@@ -61,6 +87,156 @@ function replaceDurationInMessage(msg, newDurationText) {
 
 // Config mapping for status states
 let isAdminVerified = false;
+
+// Admin Dashboard chart instances & fetching logic
+let chartVolume = null;
+let chartEndpoints = null;
+let chartStatusCodes = null;
+
+async function fetchAndRenderDashboard() {
+  const dashboardEl = document.getElementById('admin-dashboard');
+  if (!dashboardEl) return;
+
+  if (!isAdminVerified) {
+    dashboardEl.style.display = 'none';
+    return;
+  }
+
+  const key = localStorage.getItem('adminApiKey');
+  if (!key) return;
+
+  try {
+    const res = await fetch('/api/v1/admin/api-usage', {
+      headers: {
+        'Authorization': `Bearer ${key}`
+      }
+    });
+    if (!res.ok) {
+      dashboardEl.style.display = 'none';
+      return;
+    }
+    const data = await res.json();
+    dashboardEl.style.display = 'block';
+
+    // 1. Render Metrics
+    document.getElementById('metric-ips-24h').textContent = data.uniqueIPs.last24h;
+    document.getElementById('metric-ips-7d').textContent = data.uniqueIPs.last7d;
+    document.getElementById('metric-ips-30d').textContent = data.uniqueIPs.last30d;
+
+    // 2. Render Top Consumers Table
+    const tbody = document.getElementById('top-consumers-body');
+    tbody.innerHTML = '';
+    if (data.topConsumers && data.topConsumers.length > 0) {
+      data.topConsumers.forEach(consumer => {
+        const tr = document.createElement('tr');
+        
+        const tdIp = document.createElement('td');
+        tdIp.textContent = consumer.ip;
+        
+        const tdCount = document.createElement('td');
+        tdCount.textContent = consumer.count;
+        
+        tr.appendChild(tdIp);
+        tr.appendChild(tdCount);
+        tbody.appendChild(tr);
+      });
+    } else {
+      tbody.innerHTML = '<tr><td colspan="2" style="text-align: center; color: var(--text-muted); padding: 1rem;">No usage recorded</td></tr>';
+    }
+
+    // 3. Render Charts
+    if (typeof Chart === 'undefined') {
+      console.warn("Chart.js is not loaded yet.");
+      return;
+    }
+
+    // Destroy old charts if they exist
+    if (chartVolume) chartVolume.destroy();
+    if (chartEndpoints) chartEndpoints.destroy();
+    if (chartStatusCodes) chartStatusCodes.destroy();
+
+    const fontConfig = {
+      family: "'Outfit', sans-serif",
+      size: 11
+    };
+
+    // Daily Volume Chart
+    const volCtx = document.getElementById('chart-daily-volume').getContext('2d');
+    const volLabels = data.dailyVolume.map(v => v.date);
+    const volCounts = data.dailyVolume.map(v => v.count);
+    chartVolume = new Chart(volCtx, {
+      type: 'bar',
+      data: {
+        labels: volLabels.length ? volLabels : ['No Data'],
+        datasets: [{
+          label: 'Requests',
+          data: volCounts.length ? volCounts : [0],
+          backgroundColor: '#3b82f6',
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { titleFont: fontConfig, bodyFont: fontConfig }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: fontConfig } },
+          y: { beginAtZero: true, ticks: { precision: 0, font: fontConfig } }
+        }
+      }
+    });
+
+    // Endpoints Chart
+    const epCtx = document.getElementById('chart-endpoints').getContext('2d');
+    const epLabels = data.endpoints.map(e => e.endpoint);
+    const epCounts = data.endpoints.map(e => e.count);
+    chartEndpoints = new Chart(epCtx, {
+      type: 'doughnut',
+      data: {
+        labels: epLabels.length ? epLabels : ['No Data'],
+        datasets: [{
+          data: epCounts.length ? epCounts : [0],
+          backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#64748b']
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { font: fontConfig, boxWidth: 12 } }
+        }
+      }
+    });
+
+    // Status Codes Chart
+    const scCtx = document.getElementById('chart-status-codes').getContext('2d');
+    const scLabels = data.statusCodes.map(s => s.status_code);
+    const scCounts = data.statusCodes.map(s => s.count);
+    chartStatusCodes = new Chart(scCtx, {
+      type: 'doughnut',
+      data: {
+        labels: scLabels.length ? scLabels.map(String) : ['No Data'],
+        datasets: [{
+          data: scCounts.length ? scCounts : [0],
+          backgroundColor: ['#10b981', '#ef4444', '#f59e0b', '#3b82f6', '#64748b']
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { font: fontConfig, boxWidth: 12 } }
+        }
+      }
+    });
+
+  } catch (e) {
+    console.error('Error fetching API usage data:', e);
+  }
+}
 
 const STATE_CONFIGS = {
   'Up': {
@@ -896,6 +1072,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (isValid) {
         isAdminVerified = true;
         fetchIncidentHistory(); // re-render history with edit options visible
+        fetchAndRenderDashboard(); // load dashboard
       } else {
         localStorage.removeItem('adminApiKey');
       }
@@ -933,6 +1110,7 @@ document.addEventListener('DOMContentLoaded', () => {
           isAdminVerified = true;
           adminKeyModal.style.display = 'none';
           fetchIncidentHistory();
+          fetchAndRenderDashboard();
         } else {
           alert("Invalid Admin Key. Access denied.");
         }
@@ -949,6 +1127,7 @@ document.addEventListener('DOMContentLoaded', () => {
       adminKeyInput.value = '';
       adminKeyModal.style.display = 'none';
       fetchIncidentHistory();
+      fetchAndRenderDashboard();
     });
   }
 
