@@ -977,6 +977,52 @@ document.addEventListener('DOMContentLoaded', () => {
     editNotesInput.value = inc.admin_notes || '';
     editLinkInput.value = inc.admin_link || '';
     editLinkTextInput.value = inc.admin_link_text || '';
+
+    // Parse timeline events from details
+    let timeline = [];
+    if (inc.details) {
+      try {
+        const parsed = JSON.parse(inc.details);
+        if (parsed && Array.isArray(parsed.errors)) {
+          timeline = parsed.errors;
+        }
+      } catch (e) {
+        console.error("Failed to parse incident details", e);
+      }
+    }
+
+    const container = document.getElementById('edit-timeline-events-container');
+    if (container) {
+      container.innerHTML = '';
+      if (timeline.length > 0) {
+        const header = document.createElement('div');
+        header.className = 'edit-timeline-section-title';
+        header.textContent = 'Detailed Timeline Events';
+        container.appendChild(header);
+
+        timeline.forEach((event, idx) => {
+          const item = document.createElement('div');
+          item.className = 'edit-timeline-event-item';
+          const eventTypeClass = event.type.replace(/\s+/g, '-');
+          item.innerHTML = `
+            <div class="edit-timeline-event-header">
+              <span class="edit-timeline-event-title">Event #${idx + 1}</span>
+              <span class="edit-timeline-event-badge ${eventTypeClass}">${escapeHtml(event.type)}</span>
+            </div>
+            <div class="form-group">
+              <label style="font-size: 0.8rem; color: #94a3b8;">Event Timestamp (ISO 8601)</label>
+              <input type="text" class="edit-timeline-event-time-input" data-index="${idx}" value="${escapeHtml(event.timestamp)}" style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.5rem; color: #f1f5f9; font-family: inherit; font-size: 0.9rem;">
+            </div>
+            <div class="form-group">
+              <label style="font-size: 0.8rem; color: #94a3b8;">Event Description</label>
+              <input type="text" class="edit-timeline-event-message-input" data-index="${idx}" value="${escapeHtml(event.message || '')}" style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.5rem; color: #f1f5f9; font-family: inherit; font-size: 0.9rem;">
+            </div>
+          `;
+          container.appendChild(item);
+        });
+      }
+    }
+
     editIncidentModal.style.display = 'flex';
   };
 
@@ -1005,6 +1051,21 @@ document.addEventListener('DOMContentLoaded', () => {
       const linkText = editLinkTextInput.value.trim();
       const outageType = editTypeSelect ? editTypeSelect.value : undefined;
 
+      // Compile updated timeline events
+      const errors = [];
+      const eventTimeInputs = document.querySelectorAll('.edit-timeline-event-time-input');
+      const eventMessageInputs = document.querySelectorAll('.edit-timeline-event-message-input');
+
+      eventTimeInputs.forEach(timeInput => {
+        const idx = parseInt(timeInput.getAttribute('data-index'), 10);
+        const msgInput = Array.from(eventMessageInputs).find(m => parseInt(m.getAttribute('data-index'), 10) === idx);
+
+        errors[idx] = {
+          timestamp: timeInput.value.trim(),
+          message: msgInput ? msgInput.value.trim() : ''
+        };
+      });
+
       try {
         const res = await fetch(`/api/v1/incidents/${id}`, {
           method: 'PATCH',
@@ -1017,7 +1078,8 @@ document.addEventListener('DOMContentLoaded', () => {
             admin_notes: notes,
             admin_link: link,
             admin_link_text: linkText,
-            outage_type: outageType
+            outage_type: outageType,
+            errors: errors.length > 0 ? errors : undefined
           })
         });
 

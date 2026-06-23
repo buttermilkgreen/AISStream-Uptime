@@ -1304,8 +1304,7 @@ const server = http.createServer((req, res) => {
 
     req.on('end', () => {
       try {
-        const payload = JSON.parse(body);
-        const { start_time, admin_notes, admin_link, admin_link_text, outage_type } = payload;
+        const { start_time, admin_notes, admin_link, admin_link_text, outage_type, errors } = JSON.parse(body);
 
         if (start_time) {
           const date = new Date(start_time);
@@ -1322,6 +1321,24 @@ const server = http.createServer((req, res) => {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Invalid outage_type value.' }));
             return;
+          }
+        }
+
+        if (errors) {
+          if (!Array.isArray(errors)) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid errors format. Must be an array.' }));
+            return;
+          }
+          for (const errItem of errors) {
+            if (errItem.timestamp) {
+              const d = new Date(errItem.timestamp);
+              if (isNaN(d.getTime())) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: `Invalid timestamp format for event: ${errItem.timestamp}` }));
+                return;
+              }
+            }
           }
         }
 
@@ -1345,31 +1362,41 @@ const server = http.createServer((req, res) => {
           const newOutageType = outage_type || row.outage_type;
 
           let newDetails = row.details;
-          if (newDetails && (start_time || outage_type)) {
-            try {
-              let timelineDetails = JSON.parse(row.details);
-              if (timelineDetails) {
-                const startMs = new Date(newStartTime).getTime();
-                const endMs = row.end_time ? new Date(row.end_time).getTime() : Date.now();
-                const durationSec = Math.max(0, (endMs - startMs) / 1000);
-                const durationText = formatDuration(durationSec);
-
-                if (timelineDetails.summary) {
-                  timelineDetails.summary = replaceDurationInMessage(timelineDetails.summary, durationText);
-                }
-
-                if (timelineDetails.errors && Array.isArray(timelineDetails.errors)) {
-                  timelineDetails.errors.forEach(err => {
-                    if (err.message) {
-                      err.message = replaceDurationInMessage(err.message, durationText);
-                    }
-                  });
-                }
-                newDetails = JSON.stringify(timelineDetails);
-              }
-            } catch (e) {
-              logEvent(`Failed to recalculate details duration: ${e.message}`, "error");
+          try {
+            let timelineDetails = row.details ? JSON.parse(row.details) : {};
+            if (errors && Array.isArray(errors)) {
+              timelineDetails.errors = errors.map((errItem, idx) => {
+                const originalErr = (timelineDetails.errors && timelineDetails.errors[idx]) || {};
+                return {
+                  timestamp: errItem.timestamp || originalErr.timestamp || new Date().toISOString(),
+                  type: errItem.type || originalErr.type || 'Down',
+                  message: errItem.message || originalErr.message || '',
+                  raw: originalErr.raw || {}
+                };
+              });
             }
+
+            if (timelineDetails) {
+              const startMs = new Date(newStartTime).getTime();
+              const endMs = row.end_time ? new Date(row.end_time).getTime() : Date.now();
+              const durationSec = Math.max(0, (endMs - startMs) / 1000);
+              const durationText = formatDuration(durationSec);
+
+              if (timelineDetails.summary) {
+                timelineDetails.summary = replaceDurationInMessage(timelineDetails.summary, durationText);
+              }
+
+              if (timelineDetails.errors && Array.isArray(timelineDetails.errors)) {
+                timelineDetails.errors.forEach(err => {
+                  if (err.message) {
+                    err.message = replaceDurationInMessage(err.message, durationText);
+                  }
+                });
+              }
+              newDetails = JSON.stringify(timelineDetails);
+            }
+          } catch (e) {
+            logEvent(`Failed to recalculate details duration: ${e.message}`, "error");
           }
 
           db.run(
