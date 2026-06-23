@@ -1497,7 +1497,8 @@ const server = http.createServer((req, res) => {
   }
 
   // Static File Serving
-  let filePath = req.url === '/' ? '/index.html' : req.url;
+  const parsedUrl = req.url.split('?')[0];
+  let filePath = parsedUrl === '/' ? '/index.html' : parsedUrl;
   const safePath = path.normalize(filePath).replace(/^(\.\.[\/\\])+/, '');
   const absolutePath = path.join(__dirname, 'public', safePath);
 
