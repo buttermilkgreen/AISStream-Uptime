@@ -3,6 +3,23 @@ const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
 const sqlite3 = require('sqlite3').verbose();
+const crypto = require('crypto');
+
+// Banned IP lists for admin lockout
+const bannedIPs = new Set();
+const adminFailuresByIp = new Map();
+
+// Timing safe comparison helper
+function safeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const aBuf = Buffer.from(a);
+  const bBuf = Buffer.from(b);
+  if (aBuf.length !== bBuf.length) {
+    crypto.timingSafeEqual(aBuf, aBuf);
+    return false;
+  }
+  return crypto.timingSafeEqual(aBuf, bBuf);
+}
 
 // 1. Simple Custom .env Parser to keep dependencies minimal
 function loadEnv() {
@@ -33,6 +50,10 @@ const RATE_LIMIT_RPM = parseInt(process.env.API_RATE_LIMIT_RPM, 10) || 60;
 const CACHE_TTL_SECONDS = parseInt(process.env.API_CACHE_TTL_SECONDS, 10) || 15;
 let simulatedModeActive = false;
 const serverStartTime = new Date().toISOString();
+
+if (!process.env.ADMIN_API_KEY) {
+  console.warn("\x1b[33m%s\x1b[0m", "WARNING: ADMIN_API_KEY is not configured. Manual incident editing will be unavailable.");
+}
 
 // Caching storage and helpers
 const responseCache = {
@@ -132,7 +153,8 @@ if (!fs.existsSync(dataDir)) {
 const dbPath = path.join(dataDir, 'uptime.db');
 const db = new sqlite3.Database(dbPath);
 let activeIncidentId = null;
-
+let lastIncidentUpdateTime = 0;
+let resumedOnStartup = false;
 
 db.serialize(() => {
   db.run(`
@@ -145,7 +167,24 @@ db.serialize(() => {
     )
   `);
 
-  db.run(`DROP TABLE IF EXISTS status_votes`);
+  db.run(`
+    ALTER TABLE incidents ADD COLUMN admin_notes TEXT
+  `, (err) => {
+    // Ignore error if column already exists
+  });
+
+  db.run(`
+    ALTER TABLE incidents ADD COLUMN admin_link TEXT
+  `, (err) => {
+    // Ignore error
+  });
+
+  db.run(`
+    ALTER TABLE incidents ADD COLUMN admin_link_text TEXT
+  `, (err) => {
+    // Ignore error
+  });
+
   db.run(`
     CREATE TABLE IF NOT EXISTS status_votes (
       client_ip TEXT NOT NULL,
@@ -160,14 +199,23 @@ db.serialize(() => {
 });
 
 // Load active incident from database on startup, closing any stale/duplicate active ones
-db.all("SELECT id, start_time FROM incidents WHERE end_time IS NULL ORDER BY start_time DESC", (err, rows) => {
+db.all("SELECT id, start_time, outage_type FROM incidents WHERE end_time IS NULL ORDER BY start_time DESC", (err, rows) => {
   if (err) {
     logEvent(`Failed to query active incidents on startup: ${err.message}`, "error");
     return;
   }
   if (rows && rows.length > 0) {
     activeIncidentId = rows[0].id;
+    resumedOnStartup = true;
+
+    // Resume ongoing outage state on boot so status is not "Pending"
+    const lastOutageType = rows[0].outage_type;
+    currentStatus.state = lastOutageType;
+    logEvent(`Resumed ongoing outage state on startup: ${lastOutageType}`, "info");
     logEvent(`Loaded active incident #${activeIncidentId} on startup.`, "info");
+
+    const incidentStartMs = new Date(rows[0].start_time).getTime();
+    lastMessageTime = incidentStartMs;
     
     if (rows.length > 1) {
       const idsToClose = rows.slice(1).map(r => r.id);
@@ -259,10 +307,43 @@ function formatDuration(seconds) {
   }
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
+
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24);
+    const remainingHours = hours % 24;
+    const daysStr = `${days} day${days === 1 ? '' : 's'}`;
+    const hoursStr = remainingHours > 0 ? `${remainingHours} hour${remainingHours === 1 ? '' : 's'}` : '';
+    const minutesStr = remainingMinutes > 0 ? `${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}` : '';
+
+    if (hoursStr && minutesStr) {
+      return `${daysStr}, ${hoursStr} and ${minutesStr}`;
+    } else if (hoursStr) {
+      return `${daysStr} and ${hoursStr}`;
+    } else if (minutesStr) {
+      return `${daysStr} and ${minutesStr}`;
+    } else {
+      return daysStr;
+    }
+  }
+
   if (remainingMinutes === 0) {
     return `${hours} hour${hours === 1 ? '' : 's'}`;
   }
   return `${hours} hour${hours === 1 ? '' : 's'} and ${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}`;
+}
+
+/**
+ * Replaces the duration string in standard outage messages with a new duration text.
+ */
+function replaceDurationInMessage(msg, newDurationText) {
+  if (!msg) return msg;
+  if (msg.includes("Connection established but no ship data received for ")) {
+    return `Connection established but no ship data received for ${newDurationText}.`;
+  }
+  if (msg.includes("No message received for ")) {
+    return `No message received for ${newDurationText}.`;
+  }
+  return msg;
 }
 
 /**
@@ -346,10 +427,25 @@ function updateState(newState, detailsObj = null) {
   const isOldStateFailing = oldState !== "Up" && oldState !== "Pending";
   const isNewStateFailing = newState !== "Up" && newState !== "Pending";
 
+  if (resumedOnStartup) {
+    const elapsed = Date.now() - new Date(serverStartTime).getTime();
+    if (elapsed >= 60000) {
+      resumedOnStartup = false;
+    }
+  }
+
   if (oldState === newState) {
     // If state is the same, but we are in a failing state and have new details, append to the timeline
     if (isNewStateFailing && detailsObj && activeIncidentId !== null) {
-      appendIncidentEvent(activeIncidentId, newState, detailsObj);
+      const now = Date.now();
+      if (now - lastIncidentUpdateTime >= 60000) {
+        lastIncidentUpdateTime = now;
+        if (resumedOnStartup) {
+          logEvent(`Skipping timeline event append for resumed incident #${activeIncidentId} during startup grace period`, "info");
+        } else {
+          appendIncidentEvent(activeIncidentId, newState, detailsObj);
+        }
+      }
     }
     return;
   }
@@ -357,13 +453,20 @@ function updateState(newState, detailsObj = null) {
   logEvent(`State transition: ${oldState} -> ${newState}`, "info");
   currentStatus.state = newState;
 
+  if (isNewStateFailing) {
+    lastIncidentUpdateTime = Date.now();
+  } else {
+    lastIncidentUpdateTime = 0;
+  }
+
   // We do not record incidents for transition to/from "Pending" on boot.
   if (oldState === "Pending" && newState === "Up") {
     return;
   }
 
-  // If returning to "Up" (or "Pending"), close any active incident
-  if (!isNewStateFailing) {
+  // If returning to "Up", close any active incident
+  if (newState === "Up") {
+    resumedOnStartup = false;
     if (activeIncidentId !== null) {
       const activeId = activeIncidentId;
       activeIncidentId = null;
@@ -423,6 +526,11 @@ function updateState(newState, detailsObj = null) {
     return;
   }
 
+  // If transitioning to Pending, just return without closing or creating incidents
+  if (newState === "Pending") {
+    return;
+  }
+
   // Transitioning to a non-up state (Down, Silent Failure, Auth Error)
 
   // If we already have an active incident, continue using it (and update its state/timeline)
@@ -435,7 +543,11 @@ function updateState(newState, detailsObj = null) {
     } else {
       logEvent(`Continuing active incident #${activeIncidentId} after state transition from ${oldState} to ${newState}`, "info");
     }
-    appendIncidentEvent(activeIncidentId, newState, detailsObj);
+    if (resumedOnStartup) {
+      logEvent(`Skipping timeline event append for resumed incident #${activeIncidentId} during startup grace period`, "info");
+    } else {
+      appendIncidentEvent(activeIncidentId, newState, detailsObj);
+    }
     return;
   }
 
@@ -502,6 +614,25 @@ let wsClient = null;
 let reconnectTimer = null;
 let silenceCheckInterval = null;
 let lastMessageTime = 0;
+let lastSavedTime = 0;
+const lastSeenPath = path.join(dataDir, 'last_seen.txt');
+
+// Load persistent lastMessageTime on startup
+if (fs.existsSync(lastSeenPath)) {
+  try {
+    const val = fs.readFileSync(lastSeenPath, 'utf8').trim();
+    const parsedTime = parseInt(val, 10);
+    if (!isNaN(parsedTime) && parsedTime > 0) {
+      lastMessageTime = parsedTime;
+      lastSavedTime = parsedTime;
+      currentStatus.lastMessageReceived = new Date(parsedTime).toISOString();
+      logEvent(`Loaded persistent last message time from disk: ${currentStatus.lastMessageReceived}`, "info");
+    }
+  } catch (e) {
+    logEvent(`Failed to read persistent last message time: ${e.message}`, "error");
+  }
+}
+
 let connectionOpenTime = 0;
 let hasReceivedDataSinceConnect = false;
 let messageCounter = 0;
@@ -586,6 +717,14 @@ function connectAISStream() {
     messageCounter++;
     lastMessageTime = Date.now();
     currentStatus.lastMessageReceived = new Date().toISOString();
+
+    const now = Date.now();
+    if (now - lastSavedTime >= 10000) {
+      lastSavedTime = now;
+      fs.writeFile(lastSeenPath, String(lastMessageTime), (err) => {
+        if (err) logEvent(`Failed to persist last seen time: ${err.message}`, "error");
+      });
+    }
 
     // Parse message metadata if needed
     let parsed = null;
@@ -678,7 +817,7 @@ function startSilenceCheck() {
   silenceCheckInterval = setInterval(() => {
     if (simulatedModeActive) return;
     if (wsClient && wsClient.readyState === WebSocket.OPEN) {
-      const checkStartTime = hasReceivedDataSinceConnect ? lastMessageTime : connectionOpenTime;
+      const checkStartTime = (lastMessageTime > 0) ? lastMessageTime : connectionOpenTime;
       if (checkStartTime === 0) return; // Connection established but open time not recorded yet
 
       const secondsSinceLastMessage = (Date.now() - checkStartTime) / 1000;
@@ -686,29 +825,37 @@ function startSilenceCheck() {
       if (secondsSinceLastMessage > SILENCE_TO_DOWN_TIMEOUT) {
         const friendlyDuration = formatDuration(secondsSinceLastMessage);
         const detailedMsg = `Connection established but no ship data received for ${friendlyDuration}.`;
+        const oldState = currentStatus.state;
+        const now = Date.now();
 
-        logEvent(`Escalating to Down: ${detailedMsg}`, "error");
-        updateState("Down", {
-          message: detailedMsg,
-          raw: {
-            secondsSinceLastMessage,
-            checkStartTime: new Date(checkStartTime).toISOString(),
-            currentTime: new Date().toISOString()
-          }
-        });
+        if (oldState !== "Down" || now - lastIncidentUpdateTime >= 60000) {
+          logEvent(`Escalating to Down: ${detailedMsg}`, "error");
+          updateState("Down", {
+            message: detailedMsg,
+            raw: {
+              secondsSinceLastMessage,
+              checkStartTime: new Date(checkStartTime).toISOString(),
+              currentTime: new Date().toISOString()
+            }
+          });
+        }
       } else if (secondsSinceLastMessage > SILENCE_TIMEOUT) {
         const friendlyDuration = formatDuration(secondsSinceLastMessage);
         const detailedMsg = `Connection established but no ship data received for ${friendlyDuration}.`;
+        const oldState = currentStatus.state;
+        const now = Date.now();
 
-        logEvent(`Silent Failure detected: ${detailedMsg}`, "warning");
-        updateState("Silent Failure", {
-          message: detailedMsg,
-          raw: {
-            secondsSinceLastMessage,
-            checkStartTime: new Date(checkStartTime).toISOString(),
-            currentTime: new Date().toISOString()
-          }
-        });
+        if (oldState !== "Silent Failure" || now - lastIncidentUpdateTime >= 60000) {
+          logEvent(`Silent Failure detected: ${detailedMsg}`, "warning");
+          updateState("Silent Failure", {
+            message: detailedMsg,
+            raw: {
+              secondsSinceLastMessage,
+              checkStartTime: new Date(checkStartTime).toISOString(),
+              currentTime: new Date().toISOString()
+            }
+          });
+        }
       }
     }
   }, 2000);
@@ -730,10 +877,16 @@ const mimeTypes = {
 };
 
 const server = http.createServer((req, res) => {
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  if (bannedIPs.has(clientIp)) {
+    req.socket.destroy();
+    return;
+  }
+
   // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PATCH');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(200);
@@ -784,7 +937,7 @@ const server = http.createServer((req, res) => {
     const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
     db.all(
-      "SELECT start_time, end_time, outage_type FROM incidents WHERE end_time IS NULL OR end_time >= ?",
+      "SELECT id, start_time, end_time, outage_type, admin_notes, admin_link, admin_link_text FROM incidents WHERE end_time IS NULL OR end_time >= ?",
       [cutoffTime],
       (err, rows) => {
         if (err) {
@@ -831,6 +984,18 @@ const server = http.createServer((req, res) => {
           });
         }
 
+        let activeIncident = null;
+        const activeRow = rows.find(r => r.end_time === null);
+        if (activeRow) {
+          activeIncident = {
+            id: activeRow.id,
+            start_time: activeRow.start_time,
+            admin_notes: activeRow.admin_notes,
+            admin_link: activeRow.admin_link,
+            admin_link_text: activeRow.admin_link_text
+          };
+        }
+
         const payload = JSON.stringify({
           state: currentStatus.state,
           lastChecked: currentStatus.lastChecked,
@@ -838,7 +1003,8 @@ const server = http.createServer((req, res) => {
           history: slots,
           devMode: isDevMode,
           simulated: simulatedModeActive,
-          silenceTimeout: SILENCE_TIMEOUT
+          silenceTimeout: SILENCE_TIMEOUT,
+          activeIncident: activeIncident
         });
 
         setCachedResponse('status', payload);
@@ -1053,6 +1219,279 @@ const server = http.createServer((req, res) => {
       setCachedResponse('incidents', payload);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(payload);
+    });
+    return;
+  }
+
+  // API - Verify Admin Key Endpoint
+  if (req.url === '/api/v1/admin/verify' && req.method === 'POST') {
+    const authHeader = req.headers['authorization'];
+    const adminKey = process.env.ADMIN_API_KEY;
+
+    if (!adminKey) {
+      res.writeHead(501, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Server configuration error: ADMIN_API_KEY is not set.' }));
+      return;
+    }
+
+    let authenticated = false;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const sentToken = authHeader.substring(7);
+      authenticated = safeCompare(sentToken, adminKey);
+    }
+
+    if (!authenticated) {
+      const attempts = (adminFailuresByIp.get(clientIp) || 0) + 1;
+      adminFailuresByIp.set(clientIp, attempts);
+      logEvent(`Failed admin verification attempt from ${clientIp}. Total attempts: ${attempts}`, "warning");
+      
+      if (attempts >= 3) {
+        bannedIPs.add(clientIp);
+        logEvent(`IP ${clientIp} has been banned due to consecutive verification failures.`, "error");
+      }
+
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized: Invalid admin key.' }));
+      return;
+    }
+
+    adminFailuresByIp.delete(clientIp);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true }));
+    return;
+  }
+
+  // API - Patch/Edit Incident Endpoint (Protected by ADMIN_API_KEY)
+  const incidentPatchMatch = req.url.match(/^\/api\/v1\/incidents\/(\d+)$/);
+  if (incidentPatchMatch && req.method === 'PATCH') {
+    const authHeader = req.headers['authorization'];
+    const adminKey = process.env.ADMIN_API_KEY;
+
+    if (!adminKey) {
+      res.writeHead(501, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Server configuration error: ADMIN_API_KEY is not set.' }));
+      return;
+    }
+
+    let authenticated = false;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const sentToken = authHeader.substring(7);
+      authenticated = safeCompare(sentToken, adminKey);
+    }
+
+    if (!authenticated) {
+      const attempts = (adminFailuresByIp.get(clientIp) || 0) + 1;
+      adminFailuresByIp.set(clientIp, attempts);
+      logEvent(`Failed admin authentication attempt from ${clientIp}. Total attempts: ${attempts}`, "warning");
+      
+      if (attempts >= 3) {
+        bannedIPs.add(clientIp);
+        logEvent(`IP ${clientIp} has been banned due to consecutive admin authentication failures.`, "error");
+      }
+
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized: Invalid admin key.' }));
+      return;
+    }
+
+    adminFailuresByIp.delete(clientIp);
+    const incidentId = parseInt(incidentPatchMatch[1], 10);
+
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk.toString();
+    });
+
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body);
+        const { start_time, admin_notes, admin_link, admin_link_text, outage_type } = payload;
+
+        if (start_time) {
+          const date = new Date(start_time);
+          if (isNaN(date.getTime())) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid start_time format. Must be a valid ISO-8601 string.' }));
+            return;
+          }
+        }
+
+        if (outage_type) {
+          const validTypes = ["Down", "Silent Failure", "Service Outage", "Auth Error"];
+          if (!validTypes.includes(outage_type)) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid outage_type value.' }));
+            return;
+          }
+        }
+
+        db.get("SELECT start_time, end_time, outage_type, details FROM incidents WHERE id = ?", [incidentId], (err, row) => {
+          if (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: `Database error: ${err.message}` }));
+            return;
+          }
+
+          if (!row) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Incident not found' }));
+            return;
+          }
+
+          const newStartTime = start_time || row.start_time;
+          const newAdminNotes = admin_notes !== undefined ? admin_notes : null;
+          const newAdminLink = admin_link !== undefined ? admin_link : null;
+          const newAdminLinkText = admin_link_text !== undefined ? admin_link_text : null;
+          const newOutageType = outage_type || row.outage_type;
+
+          let newDetails = row.details;
+          if (newDetails && (start_time || outage_type)) {
+            try {
+              let timelineDetails = JSON.parse(row.details);
+              if (timelineDetails) {
+                const startMs = new Date(newStartTime).getTime();
+                const endMs = row.end_time ? new Date(row.end_time).getTime() : Date.now();
+                const durationSec = Math.max(0, (endMs - startMs) / 1000);
+                const durationText = formatDuration(durationSec);
+
+                if (timelineDetails.summary) {
+                  timelineDetails.summary = replaceDurationInMessage(timelineDetails.summary, durationText);
+                }
+
+                if (timelineDetails.errors && Array.isArray(timelineDetails.errors)) {
+                  timelineDetails.errors.forEach(err => {
+                    if (err.message) {
+                      err.message = replaceDurationInMessage(err.message, durationText);
+                    }
+                  });
+                }
+                newDetails = JSON.stringify(timelineDetails);
+              }
+            } catch (e) {
+              logEvent(`Failed to recalculate details duration: ${e.message}`, "error");
+            }
+          }
+
+          db.run(
+            "UPDATE incidents SET start_time = ?, admin_notes = ?, admin_link = ?, admin_link_text = ?, outage_type = ?, details = ? WHERE id = ?",
+            [newStartTime, newAdminNotes, newAdminLink, newAdminLinkText, newOutageType, newDetails, incidentId],
+            (updateErr) => {
+              if (updateErr) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: `Update failed: ${updateErr.message}` }));
+                return;
+              }
+
+              invalidateCache();
+
+              // If the edited incident is currently the active one, update the currentStatus state in memory
+              if (incidentId === activeIncidentId) {
+                currentStatus.state = newOutageType;
+              }
+
+              logEvent(`Incident #${incidentId} updated manually. Start Time: ${newStartTime}, Type: ${newOutageType}`, "success");
+
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: true, message: 'Incident updated successfully.' }));
+            }
+          );
+        });
+
+      } catch (parseErr) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Malformed JSON payload.' }));
+      }
+    });
+    return;
+  }
+
+  // API - Delete Incident Endpoint (Protected by ADMIN_API_KEY)
+  const incidentDeleteMatch = req.url.match(/^\/api\/v1\/incidents\/(\d+)$/);
+  if (incidentDeleteMatch && req.method === 'DELETE') {
+    const authHeader = req.headers['authorization'];
+    const adminKey = process.env.ADMIN_API_KEY;
+
+    if (!adminKey) {
+      res.writeHead(501, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Server configuration error: ADMIN_API_KEY is not set.' }));
+      return;
+    }
+
+    let authenticated = false;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const sentToken = authHeader.substring(7);
+      authenticated = safeCompare(sentToken, adminKey);
+    }
+
+    if (!authenticated) {
+      const attempts = (adminFailuresByIp.get(clientIp) || 0) + 1;
+      adminFailuresByIp.set(clientIp, attempts);
+      logEvent(`Failed admin authentication attempt from ${clientIp}. Total attempts: ${attempts}`, "warning");
+      
+      if (attempts >= 3) {
+        bannedIPs.add(clientIp);
+        logEvent(`IP ${clientIp} has been banned due to consecutive admin authentication failures.`, "error");
+      }
+
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized: Invalid admin key.' }));
+      return;
+    }
+
+    adminFailuresByIp.delete(clientIp);
+    const incidentId = parseInt(incidentDeleteMatch[1], 10);
+
+    db.get("SELECT end_time FROM incidents WHERE id = ?", [incidentId], (err, row) => {
+      if (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Database error: ${err.message}` }));
+        return;
+      }
+
+      if (!row) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Incident not found' }));
+        return;
+      }
+
+      const wasActive = row.end_time === null;
+
+      db.run("DELETE FROM incidents WHERE id = ?", [incidentId], (deleteErr) => {
+        if (deleteErr) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `Delete failed: ${deleteErr.message}` }));
+          return;
+        }
+
+        invalidateCache();
+
+        if (wasActive || incidentId === activeIncidentId) {
+          db.get("SELECT id, outage_type, start_time FROM incidents ORDER BY start_time DESC LIMIT 1", (nextErr, nextRow) => {
+            if (!nextErr && nextRow) {
+              activeIncidentId = nextRow.id;
+              currentStatus.state = nextRow.outage_type;
+              
+              const incidentStartMs = new Date(nextRow.start_time).getTime();
+              lastMessageTime = incidentStartMs;
+
+              db.run("UPDATE incidents SET end_time = NULL WHERE id = ?", [activeIncidentId], (updateErr) => {
+                logEvent(`Deleted active incident #${incidentId}. Restored previous incident #${activeIncidentId} to ongoing.`, "success");
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, message: 'Incident deleted. Previous incident restored to ongoing.' }));
+              });
+            } else {
+              activeIncidentId = null;
+              currentStatus.state = "Up";
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: true, message: 'Incident deleted. System state reset to operational.' }));
+            }
+          });
+        } else {
+          logEvent(`Deleted historical incident #${incidentId}.`, "success");
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, message: 'Incident deleted.' }));
+        }
+      });
     });
     return;
   }

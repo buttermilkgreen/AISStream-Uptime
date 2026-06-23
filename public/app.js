@@ -1,4 +1,67 @@
+function escapeHtml(text) {
+  if (typeof text !== 'string') return JSON.stringify(text);
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function formatDuration(seconds) {
+  if (seconds < 60) {
+    const s = Math.max(1, Math.round(seconds));
+    return `${s} second${s === 1 ? '' : 's'}`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.round(seconds % 60);
+  if (minutes < 60) {
+    if (remainingSeconds === 0) {
+      return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+    }
+    return `${minutes} minute${minutes === 1 ? '' : 's'} and ${remainingSeconds} second${remainingSeconds === 1 ? '' : 's'}`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24);
+    const remainingHours = hours % 24;
+    const daysStr = `${days} day${days === 1 ? '' : 's'}`;
+    const hoursStr = remainingHours > 0 ? `${remainingHours} hour${remainingHours === 1 ? '' : 's'}` : '';
+    const minutesStr = remainingMinutes > 0 ? `${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}` : '';
+
+    if (hoursStr && minutesStr) {
+      return `${daysStr}, ${hoursStr} and ${minutesStr}`;
+    } else if (hoursStr) {
+      return `${daysStr} and ${hoursStr}`;
+    } else if (minutesStr) {
+      return `${daysStr} and ${minutesStr}`;
+    } else {
+      return daysStr;
+    }
+  }
+
+  if (remainingMinutes === 0) {
+    return `${hours} hour${hours === 1 ? '' : 's'}`;
+  }
+  return `${hours} hour${hours === 1 ? '' : 's'} and ${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}`;
+}
+
+function replaceDurationInMessage(msg, newDurationText) {
+  if (!msg) return msg;
+  if (msg.includes("Connection established but no ship data received for ")) {
+    return `Connection established but no ship data received for ${newDurationText}.`;
+  }
+  if (msg.includes("No message received for ")) {
+    return `No message received for ${newDurationText}.`;
+  }
+  return msg;
+}
+
 // Config mapping for status states
+let isAdminVerified = false;
+
 const STATE_CONFIGS = {
   'Up': {
     className: 'state-up',
@@ -36,7 +99,7 @@ const STATE_CONFIGS = {
   'Down': {
     className: 'state-down',
     statusTitle: 'Major Outage',
-    description: 'The monitoring daemon cannot reach the server, or the API server is down.',
+    description: 'The connection to the AISStream server has been lost, or the service is currently unreachable.',
     badgeText: 'Major Outage',
     iconHtml: `
       <svg class="icon-error" viewBox="0 0 20 20" fill="currentColor" style="width: 22px; height: 22px; color: #ef4444;">
@@ -53,6 +116,17 @@ const STATE_CONFIGS = {
       <svg class="animate-spin" viewBox="0 0 24 24" fill="none" style="width: 22px; height: 22px; color: #6b7280;">
         <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" style="opacity: 0.25;"></circle>
         <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+    `
+  },
+  'Service Outage': {
+    className: 'state-down',
+    statusTitle: 'Major Outage',
+    description: 'Complete Loss of Service (Service Outage).',
+    badgeText: 'Service Outage',
+    iconHtml: `
+      <svg class="icon-error" viewBox="0 0 20 20" fill="currentColor" style="width: 22px; height: 22px; color: #ef4444;">
+        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
       </svg>
     `
   }
@@ -173,7 +247,7 @@ let isLogsOpen = false;
  * @param {string} state - The status state
  * @param {string} lastChecked - Timestamp of the check
  */
-function updateUI(state, lastChecked, silenceTimeout) {
+function updateUI(state, lastChecked, silenceTimeout, activeIncident) {
   const config = STATE_CONFIGS[state] || {
     className: 'state-loading',
     statusTitle: 'Checking Status...',
@@ -192,12 +266,31 @@ function updateUI(state, lastChecked, silenceTimeout) {
   statusBannerIcon.innerHTML = config.iconHtml;
   statusBannerTitle.textContent = config.statusTitle;
 
-  if (state === 'Silent Failure') {
+  let desc = config.description;
+
+  if (activeIncident && activeIncident.start_time && (state === 'Down' || state === 'Silent Failure')) {
+    const start = new Date(activeIncident.start_time);
+    const startMs = start.getTime();
+    const durationSec = Math.max(0, (Date.now() - startMs) / 1000);
+    const friendlyDuration = formatDuration(durationSec);
+    let timeString = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const isToday = start.toDateString() === new Date().toDateString();
+    if (!isToday) {
+      const dateStr = start.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      timeString += `, ${dateStr}`;
+    }
+
+    if (state === 'Silent Failure') {
+      desc = `Connection established but no ship data received for ${friendlyDuration} (since ${timeString}).`;
+    } else {
+      desc = `The connection to the AISStream server has been lost, and no ship data has been received for ${friendlyDuration} (since ${timeString}).`;
+    }
+  } else if (state === 'Silent Failure') {
     const limit = silenceTimeout || 15;
-    statusBannerDesc.textContent = `The WebSocket connection is open, but no messages have arrived in the last ${limit} seconds.`;
-  } else {
-    statusBannerDesc.textContent = config.description;
+    desc = `Connection established but no ship data received in the last ${limit} seconds.`;
   }
+
+  statusBannerDesc.textContent = desc;
 
   // Update Component Status Text
   componentStatus.className = `component-status-text ${state.replace(/\s+/g, '-')}`;
@@ -212,6 +305,44 @@ function updateUI(state, lastChecked, silenceTimeout) {
 
   currentBannerState = state;
   updateVotes(state);
+
+  const bannerNotesEl = document.getElementById('status-banner-admin-notes');
+  const bannerLinkWrapper = document.getElementById('status-banner-link-wrapper');
+
+  if (bannerNotesEl) {
+    if (activeIncident && activeIncident.admin_notes && state !== 'Pending' && state !== 'Up' && STATE_CONFIGS[state]) {
+      bannerNotesEl.textContent = activeIncident.admin_notes;
+      bannerNotesEl.style.display = 'block';
+    } else {
+      bannerNotesEl.textContent = '';
+      bannerNotesEl.style.display = 'none';
+    }
+  }
+
+  if (bannerLinkWrapper) {
+    if (activeIncident && activeIncident.admin_link && state !== 'Pending' && state !== 'Up' && STATE_CONFIGS[state]) {
+      let text = activeIncident.admin_link_text || "View Details";
+      let isGithub = activeIncident.admin_link.includes('github.com');
+      let iconHtml = '';
+      if (isGithub) {
+        iconHtml = `
+          <svg viewBox="0 0 24 24" fill="currentColor" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-right: 4px;">
+            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+          </svg>
+        `;
+      }
+      bannerLinkWrapper.innerHTML = `
+        <a id="status-banner-link" href="${escapeHtml(activeIncident.admin_link)}" target="_blank" class="btn" style="display: inline-flex; align-items: center; gap: 6px; padding: 0.4rem 0.8rem; font-size: 0.85rem; background: #18181b; color: white; border: none; border-radius: 6px; text-decoration: none; font-weight: 600;">
+          ${iconHtml}
+          <span>${escapeHtml(text)}</span>
+        </a>
+      `;
+      bannerLinkWrapper.style.display = 'block';
+    } else {
+      bannerLinkWrapper.innerHTML = '';
+      bannerLinkWrapper.style.display = 'none';
+    }
+  }
 }
 
 /**
@@ -304,16 +435,7 @@ function renderIncidentHistory(incidents) {
     });
   }
 
-  // Helper to escape HTML characters
-  function escapeHtml(text) {
-    if (typeof text !== 'string') return JSON.stringify(text);
-    return text
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-  }
+
 
   // Populate incidents into target months
   incidents.forEach(inc => {
@@ -351,6 +473,21 @@ function renderIncidentHistory(incidents) {
         } catch (e) { }
       }
 
+      // Recalculate duration on the client side based on start_time
+      const startMs = start.getTime();
+      const endMs = inc.end_time ? new Date(inc.end_time).getTime() : Date.now();
+      const durationSec = Math.max(0, (endMs - startMs) / 1000);
+      const friendlyDuration = formatDuration(durationSec);
+
+      description = replaceDurationInMessage(description, friendlyDuration);
+      if (errorsTimeline && Array.isArray(errorsTimeline)) {
+        errorsTimeline.forEach(err => {
+          if (err.message) {
+            err.message = replaceDurationInMessage(err.message, friendlyDuration);
+          }
+        });
+      }
+
       let timeText = "";
       const isOngoing = !inc.end_time;
       if (isOngoing) {
@@ -378,12 +515,16 @@ function renderIncidentHistory(incidents) {
         dayNum,
         dayName,
         startTimeFormatted,
+        startTimeRaw: inc.start_time,
         title,
         description: displayDescription,
         time: timeText,
         isOngoing,
         outageType: inc.outage_type,
-        timeline: errorsTimeline
+        timeline: errorsTimeline,
+        adminNotes: inc.admin_notes || "",
+        adminLink: inc.admin_link || "",
+        adminLinkText: inc.admin_link_text || ""
       });
     }
   });
@@ -491,8 +632,30 @@ function renderIncidentHistory(incidents) {
               <div class="incident-content">
                 <div class="incident-name">${inc.title}</div>
                 <div class="incident-desc">${inc.description}</div>
+                ${inc.adminNotes ? `<div class="incident-admin-notes" style="margin-top: 6px; padding: 6px 10px; background: rgba(59, 130, 246, 0.05); border-left: 2px solid #3b82f6; font-size: 0.85rem; border-radius: 0 4px 4px 0;">${escapeHtml(inc.adminNotes)}</div>` : ''}
+                ${inc.adminLink ? `
+                  <div style="margin-top: 8px;">
+                    <a href="${escapeHtml(inc.adminLink)}" target="_blank" class="btn" style="display: inline-flex; align-items: center; gap: 6px; padding: 0.3rem 0.6rem; font-size: 0.8rem; background: #18181b; color: white; border: none; border-radius: 4px; text-decoration: none; font-weight: 600;">
+                      ${inc.adminLink.includes('github.com') ? `
+                        <svg viewBox="0 0 24 24" fill="currentColor" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle;">
+                          <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                        </svg>
+                      ` : ''}
+                      <span>${escapeHtml(inc.adminLinkText || "View Details")}</span>
+                    </a>
+                  </div>
+                ` : ''}
               </div>
-              <div class="incident-time">${inc.time}</div>
+              <div class="incident-time" style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+                <span>${inc.time}</span>
+                ${isAdminVerified ? `
+                  <button class="btn-edit-incident" onclick="openEditModal(${inc.id})" title="Edit Incident" style="background: none; border: none; color: #6b7280; cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.2s;">
+                    <svg viewBox="0 0 20 20" fill="currentColor" style="width: 16px; height: 16px; display: inline-block;">
+                      <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                    </svg>
+                  </button>
+                ` : ''}
+              </div>
             </div>
             ${timelineHtml}
           </div>
@@ -554,6 +717,7 @@ async function fetchIncidentHistory() {
     const response = await fetch('/api/v1/incidents');
     if (!response.ok) throw new Error("Failed to fetch incidents");
     const incidents = await response.json();
+    window.allIncidents = incidents;
     renderIncidentHistory(incidents);
   } catch (error) {
     console.error("Failed to load incident history:", error);
@@ -570,7 +734,7 @@ async function fetchStatus() {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     const data = await response.json();
-    updateUI(data.state, data.lastChecked, data.silenceTimeout);
+    updateUI(data.state, data.lastChecked, data.silenceTimeout, data.activeIncident);
     renderHeartbeat(data.history);
 
     // Dev HUD visibility
@@ -681,6 +845,205 @@ document.addEventListener('DOMContentLoaded', () => {
   const simButtons = document.querySelectorAll('#developer-hud .hud-btn[data-state]');
   const payloadField = document.getElementById('sim-error-payload');
   const resumeBtn = document.getElementById('btn-resume-live');
+
+  // Admin verification helper
+  async function verifyAdminKey(token) {
+    if (!token) return false;
+    try {
+      const res = await fetch('/api/v1/admin/verify', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      return res.ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Check saved key on page load
+  const savedKey = localStorage.getItem('adminApiKey');
+  if (savedKey) {
+    verifyAdminKey(savedKey).then(isValid => {
+      if (isValid) {
+        isAdminVerified = true;
+        fetchIncidentHistory(); // re-render history with edit options visible
+      } else {
+        localStorage.removeItem('adminApiKey');
+      }
+    });
+  }
+
+  // Footer triggers key settings popover
+  const appFooter = document.getElementById('app-footer');
+  const adminKeyModal = document.getElementById('admin-key-modal');
+  const closeAdminKeyBtn = document.getElementById('btn-close-admin-key');
+  const saveAdminKeyBtn = document.getElementById('btn-save-admin-key');
+  const clearAdminKeyBtn = document.getElementById('btn-clear-admin-key');
+  const adminKeyInput = document.getElementById('admin-api-key-input');
+
+  if (appFooter) {
+    appFooter.addEventListener('click', () => {
+      adminKeyInput.value = localStorage.getItem('adminApiKey') || '';
+      adminKeyModal.style.display = 'flex';
+    });
+  }
+
+  if (closeAdminKeyBtn) {
+    closeAdminKeyBtn.addEventListener('click', () => {
+      adminKeyModal.style.display = 'none';
+    });
+  }
+
+  if (saveAdminKeyBtn) {
+    saveAdminKeyBtn.addEventListener('click', async () => {
+      const key = adminKeyInput.value.trim();
+      if (key) {
+        const isValid = await verifyAdminKey(key);
+        if (isValid) {
+          localStorage.setItem('adminApiKey', key);
+          isAdminVerified = true;
+          adminKeyModal.style.display = 'none';
+          fetchIncidentHistory();
+        } else {
+          alert("Invalid Admin Key. Access denied.");
+        }
+      } else {
+        alert("Please enter a key.");
+      }
+    });
+  }
+
+  if (clearAdminKeyBtn) {
+    clearAdminKeyBtn.addEventListener('click', () => {
+      localStorage.removeItem('adminApiKey');
+      isAdminVerified = false;
+      adminKeyInput.value = '';
+      adminKeyModal.style.display = 'none';
+      fetchIncidentHistory();
+    });
+  }
+
+  // Edit Incident Modal UI bindings
+  const editIncidentModal = document.getElementById('edit-incident-modal');
+  const closeEditIncidentBtn = document.getElementById('btn-close-edit-incident');
+  const cancelEditIncidentBtn = document.getElementById('btn-cancel-edit-incident');
+  const submitEditIncidentBtn = document.getElementById('btn-submit-edit-incident');
+
+  const editIdInput = document.getElementById('edit-incident-id');
+  const editTypeSelect = document.getElementById('edit-incident-type');
+  const editStartTimeInput = document.getElementById('edit-incident-start-time');
+  const editNotesInput = document.getElementById('edit-incident-notes');
+
+  const editLinkInput = document.getElementById('edit-incident-link');
+  const editLinkTextInput = document.getElementById('edit-incident-link-text');
+
+  window.openEditModal = function(id) {
+    const inc = (window.allIncidents || []).find(i => i.id === id);
+    if (!inc) return;
+    editIdInput.value = inc.id;
+    if (editTypeSelect) {
+      editTypeSelect.value = inc.outage_type;
+    }
+    editStartTimeInput.value = inc.start_time;
+    editNotesInput.value = inc.admin_notes || '';
+    editLinkInput.value = inc.admin_link || '';
+    editLinkTextInput.value = inc.admin_link_text || '';
+    editIncidentModal.style.display = 'flex';
+  };
+
+  const closeEditModal = () => {
+    editIncidentModal.style.display = 'none';
+  };
+
+  if (closeEditIncidentBtn) closeEditIncidentBtn.addEventListener('click', closeEditModal);
+  if (cancelEditIncidentBtn) cancelEditIncidentBtn.addEventListener('click', closeEditModal);
+
+  if (submitEditIncidentBtn) {
+    submitEditIncidentBtn.addEventListener('click', async () => {
+      const id = editIdInput.value;
+      const startTime = editStartTimeInput.value.trim();
+      const notes = editNotesInput.value.trim();
+      const token = localStorage.getItem('adminApiKey');
+
+      if (!token) {
+        alert("Admin API Key is missing. Please set it first using the 'Admin Key' button in the header.");
+        editIncidentModal.style.display = 'none';
+        adminKeyModal.style.display = 'flex';
+        return;
+      }
+
+      const link = editLinkInput.value.trim();
+      const linkText = editLinkTextInput.value.trim();
+      const outageType = editTypeSelect ? editTypeSelect.value : undefined;
+
+      try {
+        const res = await fetch(`/api/v1/incidents/${id}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            start_time: startTime || undefined,
+            admin_notes: notes,
+            admin_link: link,
+            admin_link_text: linkText,
+            outage_type: outageType
+          })
+        });
+
+        if (res.ok) {
+          closeEditModal();
+          await fetchStatus();
+          await fetchIncidentHistory();
+        } else {
+          const data = await res.json();
+          alert(`Failed to update: ${data.error}`);
+        }
+      } catch (err) {
+        console.error("Error editing incident:", err);
+        alert("Failed to connect to server.");
+      }
+    });
+  }
+
+  const deleteEditIncidentBtn = document.getElementById('btn-delete-incident');
+  if (deleteEditIncidentBtn) {
+    deleteEditIncidentBtn.addEventListener('click', async () => {
+      const id = editIdInput.value;
+      if (!id) return;
+
+      const token = localStorage.getItem('adminApiKey');
+      if (!token) {
+        alert("Admin API Key is missing. Please set it first.");
+        return;
+      }
+
+      const confirmed = confirm("Are you sure you want to delete this incident? If this is the active/latest incident, the previous incident will automatically be restored to ongoing.");
+      if (!confirmed) return;
+
+      try {
+        const res = await fetch(`/api/v1/incidents/${id}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (res.ok) {
+          closeEditModal();
+          await fetchStatus();
+          await fetchIncidentHistory();
+        } else {
+          const data = await res.json();
+          alert(`Failed to delete: ${data.error}`);
+        }
+      } catch (err) {
+        console.error("Error deleting incident:", err);
+        alert("Failed to connect to server.");
+      }
+    });
+  }
 
   // Setup Status Voting event listeners
   const voteUpBtn = document.getElementById('vote-up-btn');

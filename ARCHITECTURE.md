@@ -29,10 +29,13 @@ The backend is built in pure Node.js without heavy frameworks (e.g., Express) to
 
 * **Static File Server**: Delivers the static assets located in the `/public` folder.
 * **HTTP API Endpoints**:
-  * `GET /api/v1/status`: Returns current system status state, last checked timestamps, rolling 30-minute heartbeat history, plus `devMode` and `simulated` simulation flags. Supports query parameter `?simple=true` to skip database queries/caching and return only live connection metadata instantly.
+  * `GET /api/v1/status`: Returns current system status state, last checked timestamps, rolling 30-minute heartbeat history, `devMode`, `simulated`, plus an `activeIncident` object (containing `id`, `start_time`, `admin_notes`, `admin_link`, `admin_link_text`) if there is currently an ongoing outage. Supports query parameter `?simple=true` to return only live connection metadata instantly.
   * `GET /api/v1/health`: A lightweight check returning `{"status":"ok"}` instantly without database queries or caching.
   * `GET /api/v1/logs` (DEV mode only): Returns the 50 most recent console log messages stored in memory. Returns `403 Forbidden` in production.
   * `GET /api/v1/incidents`: Query historical incidents and active outages ordered reverse-chronologically (`start_time DESC`).
+  * `POST /api/v1/admin/verify`: Validate if a provided API key matches the configured `ADMIN_API_KEY`. Used to verify credentials before granting client-side access. Includes IP-lockout protection.
+  * `PATCH /api/v1/incidents/:id`: Manually update an incident's fields such as `start_time`, `outage_type`, `admin_notes`, `admin_link`, and `admin_link_text` (authorized via `Authorization: Bearer <ADMIN_API_KEY>`). Includes IP-lockout protection for invalid attempts.
+  * `DELETE /api/v1/incidents/:id`: Remove an incident from the database (authorized via `Authorization: Bearer <ADMIN_API_KEY>`). If it was the active ongoing incident, automatically rolls back and marks the next most recent incident as ongoing, resuming status and watchdog timers. Includes IP-lockout protection.
   * `GET /api/v1/votes`: Query consensus vote counts (Agree / Disagree) for a given status state, along with the caller's active vote.
   * `POST /api/v1/vote`: Submit, change, or withdraw a vote on a status state.
   * `POST /api/v1/test/simulate` (DEV mode only): Simulates manual state transitions (e.g. `Down`, `Silent Failure`, `Auth Error`, `Up`) with optional custom error message payloads.
@@ -98,6 +101,9 @@ All downtime windows are tracked persistently using SQLite (`uptime.db`) via the
 | `end_time` | `TEXT` | ISO-8601 Timestamp of outage resolution (Null if ongoing) |
 | `outage_type` | `TEXT` | State type: `Down`, `Silent Failure`, `Service Outage`, or `Auth Error` |
 | `details` | `TEXT` | Structured JSON containing error event logs and raw diagnostics |
+| `admin_notes` | `TEXT` | Optional manually entered notes/details regarding the outage |
+| `admin_link` | `TEXT` | Optional manually added external reference URL (e.g. GitHub Issue) |
+| `admin_link_text` | `TEXT` | Custom label text for the link button |
 
 ### Database Table: `status_votes`
 Used to manage consensus votes for system status states (Agree / Disagree).

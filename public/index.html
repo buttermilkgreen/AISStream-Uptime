@@ -45,8 +45,12 @@
           <div id="status-banner-title" class="status-title">Checking Status...</div>
         </div>
         <div class="status-banner-body">
-          <div id="status-banner-desc" class="status-desc">Connecting to local monitoring daemon...</div>
-          <div id="status-voting" class="status-voting" style="display: none;">
+          <div class="status-banner-info" style="display: flex; flex-direction: column; gap: 6px; flex: 1 1 300px;">
+            <div id="status-banner-desc" class="status-desc" style="margin: 0; flex: none;">Connecting to the status monitor...</div>
+            <div id="status-banner-admin-notes" class="status-banner-admin-notes" style="display: none; margin-top: 6px; padding: 6px 10px; background: rgba(59, 130, 246, 0.05); border-left: 2px solid #3b82f6; border-radius: 0 4px 4px 0; font-size: 0.85rem;"></div>
+            <div id="status-banner-link-wrapper" style="display: none; margin-top: 10px;"></div>
+          </div>
+          <div id="status-voting" class="status-voting" style="display: none; flex-shrink: 0; margin-left: auto;">
             <!-- <span class="voting-label">Label</span> -->
             <div class="vote-buttons">
               <button id="vote-up-btn" class="vote-btn" title="Thumbs Up">
@@ -140,9 +144,73 @@
       </div>
     </section>
 
-    <footer class="app-footer">
+    <footer class="app-footer" id="app-footer">
       <p>AISStream Uptime Monitor &bull; Active WebSocket Monitoring</p>
     </footer>
+  </div>
+
+  <!-- Admin Key Modal -->
+  <div id="admin-key-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Admin Access</h3>
+        <button id="btn-close-admin-key" class="btn-close-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-info-text">Please enter your Admin API Key to access management features.</p>
+        <div class="form-group">
+          <label for="admin-api-key-input">Admin API Key</label>
+          <input type="password" id="admin-api-key-input" placeholder="Enter key..." style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem;">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-clear-admin-key" class="btn" style="background: #ef4444; color: white;">Clear Key</button>
+        <button id="btn-save-admin-key" class="btn" style="background: #2563eb; color: white;">Verify & Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Incident Modal -->
+  <div id="edit-incident-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Edit Incident</h3>
+        <button id="btn-close-edit-incident" class="btn-close-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="edit-incident-id">
+        <div class="form-group">
+          <label for="edit-incident-type">Outage Type</label>
+          <select id="edit-incident-type" style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem; width: 100%;">
+            <option value="Down">Complete Loss of Service (Down)</option>
+            <option value="Silent Failure">Silent Failure: Connected but No Data Received</option>
+            <option value="Service Outage">Complete Loss of Service (Service Outage)</option>
+            <option value="Auth Error">Authentication Failure</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="edit-incident-start-time">Outage Start Time (ISO 8601)</label>
+          <input type="text" id="edit-incident-start-time" placeholder="YYYY-MM-DDTHH:MM:SS.SSSZ" style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem;">
+        </div>
+        <div class="form-group">
+          <label for="edit-incident-notes">Notes</label>
+          <textarea id="edit-incident-notes" placeholder="Custom notes..." rows="3" style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem; resize: vertical;"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="edit-incident-link">Reference Link (URL)</label>
+          <input type="text" id="edit-incident-link" placeholder="https://github.com/..." style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem;">
+        </div>
+        <div class="form-group">
+          <label for="edit-incident-link-text">Button Text</label>
+          <input type="text" id="edit-incident-link-text" placeholder="View Details" style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem;">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-delete-incident" class="btn" style="background: #ef4444; color: white; margin-right: auto;">Delete Incident</button>
+        <button id="btn-cancel-edit-incident" class="btn" style="background: #475569; color: white;">Cancel</button>
+        <button id="btn-submit-edit-incident" class="btn" style="background: #2563eb; color: white;">Save Changes</button>
+      </div>
+    </div>
   </div>
 
   <!-- Script -->
