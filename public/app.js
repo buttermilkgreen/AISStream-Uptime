@@ -1215,6 +1215,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const editLinkInput = document.getElementById('edit-incident-link');
   const editLinkTextInput = document.getElementById('edit-incident-link-text');
+  const editVotesUpInput = document.getElementById('edit-incident-votes-up');
+  const editVotesDownInput = document.getElementById('edit-incident-votes-down');
 
   window.openEditModal = function(id) {
     const inc = (window.allIncidents || []).find(i => i.id === id);
@@ -1227,6 +1229,12 @@ document.addEventListener('DOMContentLoaded', () => {
     editNotesInput.value = inc.admin_notes || '';
     editLinkInput.value = inc.admin_link || '';
     editLinkTextInput.value = inc.admin_link_text || '';
+    if (editVotesUpInput) {
+      editVotesUpInput.value = (inc.override_votes_up !== null && inc.override_votes_up !== undefined) ? inc.override_votes_up : '';
+    }
+    if (editVotesDownInput) {
+      editVotesDownInput.value = (inc.override_votes_down !== null && inc.override_votes_down !== undefined) ? inc.override_votes_down : '';
+    }
 
     // Parse timeline events from details
     let timeline = [];
@@ -1300,6 +1308,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const link = editLinkInput.value.trim();
       const linkText = editLinkTextInput.value.trim();
       const outageType = editTypeSelect ? editTypeSelect.value : undefined;
+      const votesUpVal = editVotesUpInput ? editVotesUpInput.value.trim() : '';
+      const votesDownVal = editVotesDownInput ? editVotesDownInput.value.trim() : '';
 
       // Compile updated timeline events
       const errors = [];
@@ -1329,7 +1339,9 @@ document.addEventListener('DOMContentLoaded', () => {
             admin_link: link,
             admin_link_text: linkText,
             outage_type: outageType,
-            errors: errors.length > 0 ? errors : undefined
+            errors: errors.length > 0 ? errors : undefined,
+            override_votes_up: votesUpVal === '' ? null : parseInt(votesUpVal, 10),
+            override_votes_down: votesDownVal === '' ? null : parseInt(votesDownVal, 10)
           })
         });
 

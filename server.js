@@ -185,6 +185,18 @@ db.serialize(() => {
     // Ignore error
   });
 
+  db.run(`
+    ALTER TABLE incidents ADD COLUMN override_votes_up INTEGER
+  `, (err) => {
+    // Ignore error
+  });
+
+  db.run(`
+    ALTER TABLE incidents ADD COLUMN override_votes_down INTEGER
+  `, (err) => {
+    // Ignore error
+  });
+
   // Create or Migrate status_votes table to support incident-based voting
   db.all("PRAGMA table_info(status_votes)", (err, columns) => {
     if (!err && columns && columns.length > 0) {
@@ -1423,8 +1435,8 @@ const server = http.createServer((req, res) => {
     db.all(`
       SELECT 
         i.*,
-        (SELECT COUNT(*) FROM status_votes WHERE incident_id = i.id AND vote_type = 'up') AS votes_up,
-        (SELECT COUNT(*) FROM status_votes WHERE incident_id = i.id AND vote_type = 'down') AS votes_down
+        COALESCE(i.override_votes_up, (SELECT COUNT(*) FROM status_votes WHERE incident_id = i.id AND vote_type = 'up')) AS votes_up,
+        COALESCE(i.override_votes_down, (SELECT COUNT(*) FROM status_votes WHERE incident_id = i.id AND vote_type = 'down')) AS votes_down
       FROM incidents i
       ORDER BY i.start_time DESC
     `, (err, rows) => {
@@ -1599,7 +1611,7 @@ const server = http.createServer((req, res) => {
 
     req.on('end', () => {
       try {
-        const { start_time, admin_notes, admin_link, admin_link_text, outage_type, errors } = JSON.parse(body);
+        const { start_time, admin_notes, admin_link, admin_link_text, outage_type, errors, override_votes_up, override_votes_down } = JSON.parse(body);
 
         if (start_time) {
           const date = new Date(start_time);
@@ -1637,7 +1649,7 @@ const server = http.createServer((req, res) => {
           }
         }
 
-        db.get("SELECT start_time, end_time, outage_type, details FROM incidents WHERE id = ?", [incidentId], (err, row) => {
+        db.get("SELECT start_time, end_time, outage_type, details, override_votes_up, override_votes_down FROM incidents WHERE id = ?", [incidentId], (err, row) => {
           if (err) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: `Database error: ${err.message}` }));
@@ -1655,6 +1667,8 @@ const server = http.createServer((req, res) => {
           const newAdminLink = admin_link !== undefined ? admin_link : null;
           const newAdminLinkText = admin_link_text !== undefined ? admin_link_text : null;
           const newOutageType = outage_type || row.outage_type;
+          const newOverrideVotesUp = override_votes_up !== undefined ? override_votes_up : row.override_votes_up;
+          const newOverrideVotesDown = override_votes_down !== undefined ? override_votes_down : row.override_votes_down;
 
           let newDetails = row.details;
           try {
@@ -1695,8 +1709,8 @@ const server = http.createServer((req, res) => {
           }
 
           db.run(
-            "UPDATE incidents SET start_time = ?, admin_notes = ?, admin_link = ?, admin_link_text = ?, outage_type = ?, details = ? WHERE id = ?",
-            [newStartTime, newAdminNotes, newAdminLink, newAdminLinkText, newOutageType, newDetails, incidentId],
+            "UPDATE incidents SET start_time = ?, admin_notes = ?, admin_link = ?, admin_link_text = ?, outage_type = ?, details = ?, override_votes_up = ?, override_votes_down = ? WHERE id = ?",
+            [newStartTime, newAdminNotes, newAdminLink, newAdminLinkText, newOutageType, newDetails, newOverrideVotesUp, newOverrideVotesDown, incidentId],
             (updateErr) => {
               if (updateErr) {
                 res.writeHead(500, { 'Content-Type': 'application/json' });

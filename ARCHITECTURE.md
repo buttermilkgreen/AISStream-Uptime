@@ -74,7 +74,9 @@ To prevent timeline database bloat from polling checks that run every 2 seconds 
 ### 2.4 Rate Limiting & Response Caching
 To protect resource-constrained servers (such as a home lab environment) from abuse and performance bottlenecks, the backend implements:
 * **IP-based Rate Limiting**: Tracks incoming requests per IP address in an in-memory sliding window. If an IP exceeds `API_RATE_LIMIT_RPM` within a 1-minute period, it is throttled with an `HTTP 429 Too Many Requests` status code. Throttling is *only* applied to `/api/v1/...` routes; static files (HTML, CSS, JS) remain unthrottled.
-* **In-Memory Caching**: Caches JSON responses for resource-heavy endpoints (`GET /api/v1/status` and `GET /api/v1/incidents`) for a configurable duration (`API_CACHE_TTL_SECONDS`). Caches are cleared instantly upon state transitions or new incident records to ensure users always receive accurate real-time data when a status change happens.
+* **In-Memory Caching**: Caches JSON responses for resource-heavy endpoints (`GET /api/v1/status` and `GET /api/v1/incidents`) for a configurable duration (`API_CACHE_TTL_SECONDS`). Caches are cleared instantly upon state transitions or new incident records (including consensus votes) to ensure users always receive accurate real-time data when a status change happens.
+* **WebSocket Connection Rate-Limit Backoff**: If the background daemon encounters a `429` rate limit or connection error from `stream.aisstream.io`, it will automatically back off the reconnection timer for 90 seconds. This prevents aggressive reconnect attempts from sustaining an API-key or IP-level connection block.
+
 
 ### 2.5 Environment Configuration
 The backend loads configuration settings from a local `.env` file or from the environment:
@@ -107,9 +109,10 @@ All downtime windows are tracked persistently using SQLite (`uptime.db`) via the
 | `admin_link_text` | `TEXT` | Custom label text for the link button |
 
 ### Database Table: `status_votes`
-Used to manage consensus votes for system status states (Agree / Disagree).
-- Restricts voters to one vote per status state to ensure clean consensus data.
-- Stores the active vote type (`up` or `down`) and the timestamp of the vote.
+Used to manage consensus votes for system status states and active outage incidents (Agree / Disagree).
+- Restricts voters to one vote per unique incident window (where `incident_id` is defined) or one vote per unique status state (where `incident_id` is null, e.g. for the "Up" state).
+- Stores the client's IP address, the status state name, the vote type (`up` or `down`), a timestamp, and the associated `incident_id` (which is NULL if there is no active outage).
+
 
 ### Database Table: `api_logs`
 Used to log and analyze direct client calls to public endpoints (excluding the frontend dashboard requests and health check metrics). A background pruning interval automatically deletes logs older than 30 days.
@@ -168,10 +171,13 @@ The frontend is a single-page app built using semantic HTML5, Vanilla JavaScript
 * **Console Terminal**: A slide-out drawer that appears only when developer mode is active (`DEV=true` or `NODE_ENV=DEV`). It polls `/api/logs` every 2 seconds, displaying color-coded daemon operations, subscription configurations, reconnection statistics, and message throughput telemetry in a terminal-like environment. Hidden entirely in production environments.
 * **Incidents feed**:
   * Displays history grouped by the last 4 calendar months.
+  * Shows the aggregate historical thumbs-up and thumbs-down vote counts on each incident card.
+  * For the active ongoing incident card, the vote buttons are interactive and mirror the main banner's voting state and actions. For closed historical incidents, the buttons are disabled and styled as read-only.
   * Truncates long summary text descriptions in the main feed and detailed timeline event logs to 140 characters, while retaining the full unabridged event log text exclusively inside the raw inspect pre block.
   * Supports interactive timelines with a **reverse-chronological event sorting** flow, placing the newest error occurrences at the top.
   * Preserves UI drawer state: Prior to periodic data poll cycles, the application caches the expanded/collapsed state of each `.timeline-drawer` and `.timeline-raw-container` ID, restoring their visibility classes automatically on DOM re-renders.
   * Includes a **Raw Response Inspector**: Clicking the `</>` SVG icon expands a formatted dark code container containing the raw JSON object. The text wraps naturally (`white-space: pre-wrap` and `word-break: break-all`) to accommodate smaller screen viewports, allowing developers to copy the full string to their clipboard.
+* **Rate Limit Toast Notification**: If the client exceeds the local API rate limit, the global fetch interceptor catches the `HTTP 429` status code and displays a non-intrusive, premium floating toast notification warning at the top of the viewport, which automatically auto-dismisses after 5 seconds.
 * **Developer Simulation HUD**: Appears only in development environments (`NODE_ENV=DEV` or `DEV=true`). Allows triggering simulated outages, inputting simulated raw error text, and reverting back to live tracking.
 * **Admin API Usage Dashboard**: Visible at the bottom of the main layout only when verified as administrator. It shows:
   * **Metric Cards**: Active user counts (unique IPs) over the last 24 hours, 7 days, and 30 days.
