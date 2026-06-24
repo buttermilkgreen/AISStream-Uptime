@@ -185,15 +185,76 @@ db.serialize(() => {
     // Ignore error
   });
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS status_votes (
-      client_ip TEXT NOT NULL,
-      status_state TEXT NOT NULL,
-      vote_type TEXT NOT NULL,
-      timestamp TEXT NOT NULL,
-      PRIMARY KEY (client_ip, status_state)
-    )
-  `);
+  // Create or Migrate status_votes table to support incident-based voting
+  db.all("PRAGMA table_info(status_votes)", (err, columns) => {
+    if (!err && columns && columns.length > 0) {
+      const hasIncidentId = columns.some(c => c.name === 'incident_id');
+      if (!hasIncidentId) {
+        logEvent("Migrating status_votes table to support incident-based voting...", "info");
+        db.serialize(() => {
+          db.run("ALTER TABLE status_votes RENAME TO status_votes_old", (renameErr) => {
+            if (renameErr) {
+              logEvent(`Failed to rename status_votes: ${renameErr.message}`, "error");
+              return;
+            }
+            db.run(`
+              CREATE TABLE status_votes (
+                client_ip TEXT NOT NULL,
+                status_state TEXT NOT NULL,
+                vote_type TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                incident_id INTEGER
+              )
+            `, (createErr) => {
+              if (createErr) {
+                logEvent(`Failed to create new status_votes table: ${createErr.message}`, "error");
+                return;
+              }
+              db.run(`
+                INSERT INTO status_votes (client_ip, status_state, vote_type, timestamp)
+                SELECT client_ip, status_state, vote_type, timestamp FROM status_votes_old
+              `, (insertErr) => {
+                db.run("DROP TABLE status_votes_old");
+                db.run(`
+                  CREATE UNIQUE INDEX IF NOT EXISTS idx_status_votes_incident 
+                  ON status_votes(client_ip, incident_id) 
+                  WHERE incident_id IS NOT NULL
+                `);
+                db.run(`
+                  CREATE UNIQUE INDEX IF NOT EXISTS idx_status_votes_state 
+                  ON status_votes(client_ip, status_state) 
+                  WHERE incident_id IS NULL
+                `);
+                logEvent("Migrated status_votes successfully to support incident-based voting.", "success");
+              });
+            });
+          });
+        });
+      }
+    } else {
+      db.run(`
+        CREATE TABLE IF NOT EXISTS status_votes (
+          client_ip TEXT NOT NULL,
+          status_state TEXT NOT NULL,
+          vote_type TEXT NOT NULL,
+          timestamp TEXT NOT NULL,
+          incident_id INTEGER
+        )
+      `);
+      db.run(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_status_votes_incident 
+        ON status_votes(client_ip, incident_id) 
+        WHERE incident_id IS NOT NULL
+      `);
+      db.run(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_status_votes_state 
+        ON status_votes(client_ip, status_state) 
+        WHERE incident_id IS NULL
+      `);
+    }
+  });
+
+
 
   db.run(`
     CREATE TABLE IF NOT EXISTS api_logs (
@@ -206,9 +267,9 @@ db.serialize(() => {
     )
   `);
 
-  // Seed dummy logs for visualization if empty
+  // Seed dummy logs for visualization if empty (DEV environment only)
   db.get("SELECT COUNT(*) AS count FROM api_logs", (err, row) => {
-    if (!err && row && row.count === 0) {
+    if (isDevMode && !err && row && row.count === 0) {
       logEvent("Seeding dummy API logs for visualization...", "info");
       const endpoints = ['/api/v1/status', '/api/v1/incidents', '/api/v1/votes'];
       const ips = ['192.168.1.50', '8.8.8.8', '1.1.1.1', '10.0.0.5', '172.16.0.2', '82.10.45.12', '90.4.52.88'];
@@ -456,6 +517,16 @@ function appendIncidentEvent(incidentId, type, detailsObj) {
  * Handles state transitions and updates SQLite database outage history
  */
 function updateState(newState, detailsObj = null) {
+  // Ignore temporary rate limits (429) from triggering public outages or incidents
+  if (detailsObj) {
+    const msg = detailsObj.message || "";
+    const rawStr = JSON.stringify(detailsObj.raw || detailsObj).toLowerCase();
+    if (rawStr.includes("429") || msg.toLowerCase().includes("429") || msg.toLowerCase().includes("rate limit") || rawStr.includes("too many requests")) {
+      logEvent("Rate Limit Exceeded (429) detected from upstream websocket. Skipping state transition and incident logging.", "warning");
+      return;
+    }
+  }
+
   invalidateCache();
   const oldState = currentStatus.state;
   currentStatus.lastChecked = new Date().toISOString();
@@ -822,8 +893,21 @@ function connectAISStream() {
       updateState("Down", errorDetails);
     }
 
+    let isRateLimit = false;
+    if (lastSocketError) {
+      const errMsg = lastSocketError.message || "";
+      if (errMsg.includes("429") || errMsg.toLowerCase().includes("rate limit") || errMsg.toLowerCase().includes("too many requests")) {
+        isRateLimit = true;
+      }
+    }
+
     lastSocketError = null;
-    scheduleReconnect();
+    if (isRateLimit) {
+      logEvent("Rate Limit Exceeded (429) detected from upstream websocket. Backing off reconnection for 90 seconds.", "warning");
+      scheduleReconnect(90000);
+    } else {
+      scheduleReconnect();
+    }
   });
 
   wsClient.on('error', (err) => {
@@ -836,11 +920,13 @@ function connectAISStream() {
 /**
  * Schedule reconnection back to the WebSocket
  */
-function scheduleReconnect() {
+function scheduleReconnect(customDelayMs = null) {
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectAttempts++;
-  logEvent(`Scheduling reconnect attempt #${reconnectAttempts} in 10 seconds...`, "info");
-  reconnectTimer = setTimeout(connectAISStream, 10000);
+  const delayMs = customDelayMs || 10000;
+  const seconds = delayMs / 1000;
+  logEvent(`Scheduling reconnect attempt #${reconnectAttempts} in ${seconds} seconds...`, "info");
+  reconnectTimer = setTimeout(connectAISStream, delayMs);
 }
 
 /**
@@ -1113,9 +1199,17 @@ const server = http.createServer((req, res) => {
     const state = urlObj.searchParams.get('state') || currentStatus.state;
     const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
 
+    // Determine if we should query by active incident ID or by state
+    const useActiveIncident = (state === currentStatus.state && activeIncidentId !== null);
+    const countQuery = useActiveIncident
+      ? "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE incident_id = ? GROUP BY vote_type"
+      : "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE status_state = ? AND incident_id IS NULL GROUP BY vote_type";
+    
+    const countParams = useActiveIncident ? [activeIncidentId] : [state];
+
     db.all(
-      "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE status_state = ? GROUP BY vote_type",
-      [state],
+      countQuery,
+      countParams,
       (err, rows) => {
         if (err) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -1129,9 +1223,15 @@ const server = http.createServer((req, res) => {
           if (r.vote_type === 'down') downCount = r.count;
         });
 
+        const userQuery = useActiveIncident
+          ? "SELECT vote_type FROM status_votes WHERE client_ip = ? AND incident_id = ?"
+          : "SELECT vote_type FROM status_votes WHERE client_ip = ? AND status_state = ? AND incident_id IS NULL";
+        
+        const userParams = useActiveIncident ? [clientIp, activeIncidentId] : [clientIp, state];
+
         db.get(
-          "SELECT vote_type FROM status_votes WHERE client_ip = ? AND status_state = ?",
-          [clientIp, state],
+          userQuery,
+          userParams,
           (err2, row) => {
             const userVote = row ? row.vote_type : null;
             res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1160,20 +1260,31 @@ const server = http.createServer((req, res) => {
         }
         const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
 
+        const useActiveIncident = (state === currentStatus.state && activeIncidentId !== null);
+        const incidentIdToUse = useActiveIncident ? activeIncidentId : null;
+
         const performVote = (callback) => {
           if (vote === 'up' || vote === 'down') {
             const timestamp = new Date().toISOString();
             db.run(
-              "INSERT OR REPLACE INTO status_votes (client_ip, status_state, vote_type, timestamp) VALUES (?, ?, ?, ?)",
-              [clientIp, state, vote, timestamp],
+              "INSERT OR REPLACE INTO status_votes (client_ip, status_state, vote_type, timestamp, incident_id) VALUES (?, ?, ?, ?, ?)",
+              [clientIp, state, vote, timestamp, incidentIdToUse],
               callback
             );
           } else {
-            db.run(
-              "DELETE FROM status_votes WHERE client_ip = ? AND status_state = ?",
-              [clientIp, state],
-              callback
-            );
+            if (useActiveIncident) {
+              db.run(
+                "DELETE FROM status_votes WHERE client_ip = ? AND incident_id = ?",
+                [clientIp, incidentIdToUse],
+                callback
+              );
+            } else {
+              db.run(
+                "DELETE FROM status_votes WHERE client_ip = ? AND status_state = ? AND incident_id IS NULL",
+                [clientIp, state],
+                callback
+              );
+            }
           }
         };
 
@@ -1184,10 +1295,17 @@ const server = http.createServer((req, res) => {
             return;
           }
 
-          // Get updated counts for the client
+          invalidateCache();
+
+          const countQuery = useActiveIncident
+            ? "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE incident_id = ? GROUP BY vote_type"
+            : "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE status_state = ? AND incident_id IS NULL GROUP BY vote_type";
+          
+          const countParams = useActiveIncident ? [incidentIdToUse] : [state];
+
           db.all(
-            "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE status_state = ? GROUP BY vote_type",
-            [state],
+            countQuery,
+            countParams,
             (errCount, rows) => {
               if (errCount) {
                 res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -1212,6 +1330,7 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+
 
   // API - Simulate Outage (Dev Mode only)
   if (req.url === '/api/v1/test/simulate' && req.method === 'POST') {
@@ -1301,7 +1420,14 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    db.all("SELECT * FROM incidents ORDER BY start_time DESC", (err, rows) => {
+    db.all(`
+      SELECT 
+        i.*,
+        (SELECT COUNT(*) FROM status_votes WHERE incident_id = i.id AND vote_type = 'up') AS votes_up,
+        (SELECT COUNT(*) FROM status_votes WHERE incident_id = i.id AND vote_type = 'down') AS votes_down
+      FROM incidents i
+      ORDER BY i.start_time DESC
+    `, (err, rows) => {
       if (err) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: err.message }));

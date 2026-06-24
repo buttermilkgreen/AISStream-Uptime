@@ -34,6 +34,7 @@ The backend is built in pure Node.js without heavy frameworks (e.g., Express) to
   * `GET /api/v1/logs` (DEV mode only): Returns the 50 most recent console log messages stored in memory. Returns `403 Forbidden` in production.
   * `GET /api/v1/incidents`: Query historical incidents and active outages ordered reverse-chronologically (`start_time DESC`).
   * `POST /api/v1/admin/verify`: Validate if a provided API key matches the configured `ADMIN_API_KEY`. Used to verify credentials before granting client-side access. Includes IP-lockout protection.
+  * `GET /api/v1/admin/api-usage`: Retrieve aggregated API usage statistics (unique IPs, daily volume, endpoints, status codes, and top consumers) for direct API clients. Authorized via `Authorization: Bearer <ADMIN_API_KEY>`. Includes IP-lockout protection.
   * `PATCH /api/v1/incidents/:id`: Manually update an incident's fields such as `start_time`, `outage_type`, `admin_notes`, `admin_link`, and `admin_link_text` (authorized via `Authorization: Bearer <ADMIN_API_KEY>`). Includes IP-lockout protection for invalid attempts.
   * `DELETE /api/v1/incidents/:id`: Remove an incident from the database (authorized via `Authorization: Bearer <ADMIN_API_KEY>`). If it was the active ongoing incident, automatically rolls back and marks the next most recent incident as ongoing, resuming status and watchdog timers. Includes IP-lockout protection.
   * `GET /api/v1/votes`: Query consensus vote counts (Agree / Disagree) for a given status state, along with the caller's active vote.
@@ -110,6 +111,18 @@ Used to manage consensus votes for system status states (Agree / Disagree).
 - Restricts voters to one vote per status state to ensure clean consensus data.
 - Stores the active vote type (`up` or `down`) and the timestamp of the vote.
 
+### Database Table: `api_logs`
+Used to log and analyze direct client calls to public endpoints (excluding the frontend dashboard requests and health check metrics). A background pruning interval automatically deletes logs older than 30 days.
+
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `INTEGER` | Primary key (Auto-incremented) |
+| `timestamp` | `TEXT` | ISO-8601 Timestamp of the request |
+| `ip` | `TEXT` | Client IP address of the caller |
+| `endpoint` | `TEXT` | Target API path (query parameters stripped) |
+| `status_code` | `INTEGER` | HTTP response code (e.g. 200, 429, 500) |
+| `response_time_ms` | `INTEGER` | Latency in milliseconds between request and finished response |
+
 ### Incident Timeline JSON Structure (`details`)
 To track how errors mutate during a single outage (e.g., transitioning from a network drop to successive connection timeouts), the `details` field is stored as a structured timeline payload:
 
@@ -160,6 +173,11 @@ The frontend is a single-page app built using semantic HTML5, Vanilla JavaScript
   * Preserves UI drawer state: Prior to periodic data poll cycles, the application caches the expanded/collapsed state of each `.timeline-drawer` and `.timeline-raw-container` ID, restoring their visibility classes automatically on DOM re-renders.
   * Includes a **Raw Response Inspector**: Clicking the `</>` SVG icon expands a formatted dark code container containing the raw JSON object. The text wraps naturally (`white-space: pre-wrap` and `word-break: break-all`) to accommodate smaller screen viewports, allowing developers to copy the full string to their clipboard.
 * **Developer Simulation HUD**: Appears only in development environments (`NODE_ENV=DEV` or `DEV=true`). Allows triggering simulated outages, inputting simulated raw error text, and reverting back to live tracking.
+* **Admin API Usage Dashboard**: Visible at the bottom of the main layout only when verified as administrator. It shows:
+  * **Metric Cards**: Active user counts (unique IPs) over the last 24 hours, 7 days, and 30 days.
+  * **Charts**: Visualizations of Daily Request Volume (bar chart), Endpoint Distribution (doughnut chart), and Status Code Distribution (doughnut chart).
+  * **Top Consumers**: Data table summarizing the 10 most active client IP addresses and their request volumes.
+  * **Responsive Grid**: Flexes to full-width stacked list on mobile devices and 2-column grid layout on larger screens, keeping charts readable and aligned.
 
 ---
 
