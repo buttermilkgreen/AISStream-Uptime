@@ -43,7 +43,7 @@ Example response:
 ```
 
 #### GET `/api/v1/incidents`
-Returns a list of past and ongoing outages from the database, ordered newest first.
+Returns a list of past and ongoing outages from the database, ordered newest first. Includes voting stats, override counts, and custom admin notes/links if configured.
 ```json
 [
   {
@@ -51,7 +51,14 @@ Returns a list of past and ongoing outages from the database, ordered newest fir
     "start_time": "2026-06-22T10:00:00.000Z",
     "end_time": "2026-06-22T10:05:00.000Z",
     "outage_type": "Down",
-    "details": "{\"summary\":\"Connection dropped: ECONNREFUSED\",\"errors\":[]}"
+    "details": "{\"summary\":\"Connection dropped: ECONNREFUSED\",\"errors\":[]}",
+    "admin_notes": "ISP maintenance scheduled",
+    "admin_link": "https://isp.status/incident/123",
+    "admin_link_text": "ISP Status Page",
+    "override_votes_up": null,
+    "override_votes_down": null,
+    "votes_up": 0,
+    "votes_down": 0
   }
 ]
 ```
@@ -84,6 +91,82 @@ Example response:
 }
 ```
 
+#### GET `/api/v1/admin/api-usage`
+Protected by `ADMIN_API_KEY`. Returns analytical data tracking API calls from external users, unique IP counts over 24h/7d/30d, daily volume patterns, and top consumer IPs.
+- **Headers**: `Authorization: Bearer <ADMIN_API_KEY>`
+
+Example response:
+```json
+{
+  "uniqueIPs": {
+    "last24h": 5,
+    "last7d": 12,
+    "last30d": 34
+  },
+  "dailyVolume": [
+    { "date": "2026-06-23", "count": 150 }
+  ],
+  "endpoints": [
+    { "endpoint": "/api/v1/status", "count": 120 }
+  ],
+  "statusCodes": [
+    { "status_code": 200, "count": 140 }
+  ],
+  "topConsumers": [
+    { "ip": "192.168.1.50", "count": 85 }
+  ]
+}
+```
+
+#### POST `/api/v1/admin/verify`
+Checks if the sent admin key is correct.
+- **Headers**: `Authorization: Bearer <ADMIN_API_KEY>`
+
+Example response:
+```json
+{
+  "success": true
+}
+```
+
+#### PATCH `/api/v1/incidents/:id`
+Updates parameters of an incident by ID.
+- **Headers**: `Authorization: Bearer <ADMIN_API_KEY>`
+- **Request Body** (all fields optional):
+```json
+{
+  "start_time": "2026-06-22T10:00:00.000Z",
+  "admin_notes": "ISP maintenance scheduled",
+  "admin_link": "https://isp.status/incident/123",
+  "admin_link_text": "ISP Status Page",
+  "outage_type": "Down",
+  "override_votes_up": 10,
+  "override_votes_down": 0,
+  "errors": [
+    { "timestamp": "2026-06-22T10:00:00.000Z", "type": "Down", "message": "ECONNREFUSED" }
+  ]
+}
+```
+Example response:
+```json
+{
+  "success": true,
+  "message": "Incident updated successfully."
+}
+```
+
+#### DELETE `/api/v1/incidents/:id`
+Deletes an incident by its ID. If it is the currently active incident, the system state reverts to the previous incident or resets to operational.
+- **Headers**: `Authorization: Bearer <ADMIN_API_KEY>`
+
+Example response:
+```json
+{
+  "success": true,
+  "message": "Incident deleted."
+}
+```
+
 ### Dev only queries (if you are self hosting and `DEV=true` is set.)
 
 #### GET `/api/v1/logs`
@@ -113,6 +196,7 @@ If self hosting, you can configure these environment variables or add them to a 
 | `SILENCE_TO_DOWN_TIMEOUT_SECONDS` | `1800` (30 mins) | Seconds a stream can remain in `Silent Failure` before being classified as `Down`. |
 | `API_RATE_LIMIT_RPM` | `60` | Max API requests permitted per minute per IP address. |
 | `API_CACHE_TTL_SECONDS` | `15` | Lifespan in seconds of cached JSON responses for status/incidents queries. |
+| `ADMIN_API_KEY` | *None* | Cryptographically secure random token to authorize manual incident updates, deletes, and API usage stats. |
 
 
 
