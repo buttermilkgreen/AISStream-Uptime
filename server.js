@@ -1372,8 +1372,6 @@ const server = http.createServer((req, res) => {
           let slotState = "Up";
           if (worstOverlap) {
             slotState = worstOverlap;
-          } else if (slotEnd < serverStartMs) {
-            slotState = "Pending";
           }
 
           slots.push({
