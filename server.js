@@ -1191,15 +1191,23 @@ const server = http.createServer((req, res) => {
       const referer = req.headers['referer'];
       const origin = req.headers['origin'];
       const host = req.headers['host'];
+      const forwardedHost = req.headers['x-forwarded-host'];
       
       let isFromSameHost = false;
-      if (host) {
-        if (referer && referer.includes(host)) {
-          isFromSameHost = true;
+      const checkSameHost = (urlStr) => {
+        if (!urlStr) return false;
+        try {
+          const urlObj = new URL(urlStr);
+          const urlHost = urlObj.host.toLowerCase();
+          const targetHosts = [host, forwardedHost].filter(Boolean).map(h => h.toLowerCase());
+          return targetHosts.some(h => urlHost === h || urlHost.split(':')[0] === h.split(':')[0]);
+        } catch (e) {
+          return false;
         }
-        if (origin && origin.includes(host)) {
-          isFromSameHost = true;
-        }
+      };
+
+      if (checkSameHost(referer) || checkSameHost(origin)) {
+        isFromSameHost = true;
       }
       
       const isWebFrontend = req.headers['x-app-source'] === 'web-frontend' || isFromSameHost;
