@@ -1214,7 +1214,7 @@ const server = http.createServer((req, res) => {
       const isAdmin = url.startsWith('/api/v1/admin/');
       const isHealth = url === '/api/v1/health';
       
-      console.log(`[DEBUG LOG] URL: ${url} | x-app-source: ${req.headers['x-app-source']} | referer: ${referer} | origin: ${origin} | host: ${host} | forwardedHost: ${forwardedHost} | isFromSameHost: ${isFromSameHost} | isWebFrontend: ${isWebFrontend}`);
+      console.log(`[DEBUG LOG] URL: ${url} | IP Hash: ${hashIp(clientIp).substring(0, 8)}... | UA: ${req.headers['user-agent']} | x-app-source: ${req.headers['x-app-source']} | referer: ${referer} | origin: ${origin} | host: ${host} | forwardedHost: ${forwardedHost} | isFromSameHost: ${isFromSameHost} | isWebFrontend: ${isWebFrontend}`);
 
       if (!isWebFrontend && !isAdmin && !isHealth) {
         const responseTime = Date.now() - startTime;
