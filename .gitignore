@@ -16,3 +16,5 @@ node_modules/
 # Reference code
 reference/
 
+# Runtime data files
+data/last_seen.txt
