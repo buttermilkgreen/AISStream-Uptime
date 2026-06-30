@@ -26,8 +26,13 @@
         <p class="logo-subtitle">Unofficial uptime monitor</p>
       </div>
       <div class="header-buttons">
-        <a href="https://github.com/aisstream/issues/issues" class="btn" id="btn-subscribe">AISStream Github Issues</a>
-        <a href="https://github.com/buttermilkgreen/AISStream-Uptime" class="btn" id="btn-support">Docs</a>
+        <a href="https://github.com/aisstream/issues/issues" class="btn" id="btn-subscribe" target="_blank" rel="noopener noreferrer">
+          <svg class="btn-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true" style="margin-right: 6px; display: inline-block; vertical-align: text-bottom;">
+            <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.35 3.12.88.01.47.01.84.01.93 0 .22-.16.47-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path>
+          </svg>
+          AISStream Github Issues
+        </a>
+        <a href="https://github.com/buttermilkgreen/AISStream-Uptime" class="btn" id="btn-support" target="_blank" rel="noopener noreferrer">API Docs</a>
       </div>
     </header>
 
@@ -46,8 +51,11 @@
         </div>
         <div class="status-banner-body">
           <div class="status-banner-info" style="display: flex; flex-direction: column; gap: 6px; flex: 1 1 300px;">
-            <div id="status-banner-desc" class="status-desc" style="margin: 0; flex: none;">Connecting to the status monitor...</div>
-            <div id="status-banner-admin-notes" class="status-banner-admin-notes" style="display: none; margin-top: 6px; padding: 6px 10px; background: rgba(59, 130, 246, 0.05); border-left: 2px solid #3b82f6; border-radius: 0 4px 4px 0; font-size: 0.85rem;"></div>
+            <div id="status-banner-desc" class="status-desc" style="margin: 0; flex: none;">Connecting to the status
+              monitor...</div>
+            <div id="status-banner-admin-notes" class="status-banner-admin-notes"
+              style="display: none; margin-top: 6px; padding: 6px 10px; background: rgba(59, 130, 246, 0.05); border-left: 2px solid #3b82f6; border-radius: 0 4px 4px 0; font-size: 0.85rem;">
+            </div>
             <div id="status-banner-link-wrapper" style="display: none; margin-top: 10px;"></div>
           </div>
           <div id="status-voting" class="status-voting" style="display: none; flex-shrink: 0; margin-left: auto;">
@@ -98,6 +106,7 @@
             <button type="button" class="hud-btn btn-down" data-state="Down">Simulate Down</button>
           </div>
           <div class="hud-footer">
+            <button type="button" id="btn-toggle-stale" class="hud-btn btn-stale">Freeze Times (Simulate Stale)</button>
             <button type="button" id="btn-resume-live" class="hud-btn btn-resume">Resume Live Monitor</button>
           </div>
         </div>
@@ -131,7 +140,7 @@
           <h2 class="dashboard-title">Admin API Usage Dashboard</h2>
           <span class="dashboard-subtitle">Direct API Requests Only (Excludes Frontend)</span>
         </div>
-        
+
         <!-- Unique IPs Metric Cards -->
         <div class="metrics-grid">
           <div class="metric-card">
@@ -177,11 +186,83 @@
             <table class="dashboard-table">
               <thead>
                 <tr>
-                  <th>IP Address</th>
+                  <th>Client Hash (Short)</th>
                   <th>Total Requests</th>
                 </tr>
               </thead>
               <tbody id="top-consumers-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Telemetry Stats Section -->
+        <div class="dashboard-header" style="margin-top: 2rem; border-top: 1px dashed #312e81; padding-top: 2rem;">
+          <h2 class="dashboard-title">Ship Tracker Telemetry</h2>
+          <span class="dashboard-subtitle">Anonymous usage statistics from active installations</span>
+        </div>
+
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <span class="metric-label">Total Installs</span>
+            <span id="metric-telemetry-total" class="metric-value">0</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Active Installs (7d)</span>
+            <span id="metric-telemetry-active-7d" class="metric-value">0</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Avg Watchlist Size</span>
+            <span id="metric-telemetry-avg-watchlist" class="metric-value">0</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Avg Map Timeout</span>
+            <span id="metric-telemetry-avg-timeout" class="metric-value">0m</span>
+          </div>
+        </div>
+
+        <div class="dashboard-grid">
+          <div class="dashboard-card pie-chart-card">
+            <h3>App Version Distribution</h3>
+            <div class="chart-container">
+              <canvas id="chart-telemetry-versions"></canvas>
+            </div>
+          </div>
+          <div class="dashboard-card pie-chart-card">
+            <h3>Adoption Rates</h3>
+            <div class="chart-container">
+              <canvas id="chart-telemetry-adoption"></canvas>
+            </div>
+          </div>
+          <div class="dashboard-card pie-chart-card">
+            <h3>Client User-Agents</h3>
+            <div class="chart-container">
+              <canvas id="chart-user-agents"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Telemetry Client List Table -->
+        <div class="dashboard-card table-card" style="margin-top: 1.5rem;">
+          <h3>Active Installations</h3>
+          <div class="table-container">
+            <table class="dashboard-table">
+              <thead>
+                <tr>
+                  <th>UUID</th>
+                  <th>Version</th>
+                  <th>IP Hash (Short)</th>
+                  <th>Map Entities</th>
+                  <th>Class B</th>
+                  <th>Clear Startup</th>
+                  <th>Map Timeout</th>
+                  <th>API Monitoring</th>
+                  <th>Watchlist Ships</th>
+                  <th>Last Check-In</th>
+                </tr>
+              </thead>
+              <tbody id="telemetry-clients-body">
                 <!-- Dynamically populated -->
               </tbody>
             </table>
@@ -208,7 +289,8 @@
     </section>
 
     <footer class="app-footer" id="app-footer">
-      <p>AISStream Uptime Monitor &bull; Active WebSocket Monitoring</p>
+      <p><span id="admin-trigger" style="cursor: pointer;">AISStream Uptime Monitor</span> &bull; <a
+          href="https://github.com/buttermilkgreen/" target="_blank">Buttermilkgreen</a></p>
     </footer>
   </div>
 
@@ -216,14 +298,13 @@
   <div id="admin-key-modal" class="modal-overlay" style="display: none;">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>Admin Access</h3>
+        <h3>Welcome</h3>
         <button id="btn-close-admin-key" class="btn-close-modal">&times;</button>
       </div>
       <div class="modal-body">
-        <p class="modal-info-text">Please enter your Admin API Key to access management features.</p>
         <div class="form-group">
-          <label for="admin-api-key-input">Admin API Key</label>
-          <input type="password" id="admin-api-key-input" placeholder="Enter key..." style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem;">
+          <input type="password" id="admin-api-key-input" placeholder="..."
+            style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem;">
         </div>
       </div>
       <div class="modal-footer">
@@ -244,7 +325,8 @@
         <input type="hidden" id="edit-incident-id">
         <div class="form-group">
           <label for="edit-incident-type">Outage Type</label>
-          <select id="edit-incident-type" style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem; width: 100%;">
+          <select id="edit-incident-type"
+            style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem; width: 100%;">
             <option value="Down">Complete Loss of Service (Down)</option>
             <option value="Silent Failure">Silent Failure: Connected but No Data Received</option>
             <option value="Service Outage">Complete Loss of Service (Service Outage)</option>
@@ -253,36 +335,44 @@
         </div>
         <div class="form-group">
           <label for="edit-incident-start-time">Outage Start Time (ISO 8601)</label>
-          <input type="text" id="edit-incident-start-time" placeholder="YYYY-MM-DDTHH:MM:SS.SSSZ" style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem;">
+          <input type="text" id="edit-incident-start-time" placeholder="YYYY-MM-DDTHH:MM:SS.SSSZ"
+            style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem;">
         </div>
         <div class="form-group">
           <label for="edit-incident-notes">Notes</label>
-          <textarea id="edit-incident-notes" placeholder="Custom notes..." rows="3" style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem; resize: vertical;"></textarea>
+          <textarea id="edit-incident-notes" placeholder="Custom notes..." rows="3"
+            style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem; resize: vertical;"></textarea>
         </div>
         <div class="form-group">
           <label for="edit-incident-link">Reference Link (URL)</label>
-          <input type="text" id="edit-incident-link" placeholder="https://github.com/..." style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem;">
+          <input type="text" id="edit-incident-link" placeholder="https://github.com/..."
+            style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem;">
         </div>
         <div class="form-group">
           <label for="edit-incident-link-text">Button Text</label>
-          <input type="text" id="edit-incident-link-text" placeholder="View Details" style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem;">
+          <input type="text" id="edit-incident-link-text" placeholder="View Details"
+            style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem;">
         </div>
         <div style="display: flex; gap: 1rem; width: 100%;">
           <div class="form-group" style="flex: 1;">
             <label for="edit-incident-votes-up">Override Up Votes</label>
-            <input type="number" id="edit-incident-votes-up" placeholder="Keep original" min="0" style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem; width: 100%;">
+            <input type="number" id="edit-incident-votes-up" placeholder="Keep original" min="0"
+              style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem; width: 100%;">
           </div>
           <div class="form-group" style="flex: 1;">
             <label for="edit-incident-votes-down">Override Down Votes</label>
-            <input type="number" id="edit-incident-votes-down" placeholder="Keep original" min="0" style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem; width: 100%;">
+            <input type="number" id="edit-incident-votes-down" placeholder="Keep original" min="0"
+              style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem; width: 100%;">
           </div>
         </div>
         <div id="edit-timeline-events-container" style="display: flex; flex-direction: column; gap: 1rem;"></div>
       </div>
       <div class="modal-footer">
-        <button id="btn-delete-incident" class="btn" style="background: #ef4444; color: white; margin-right: auto;">Delete Incident</button>
+        <button id="btn-delete-incident" class="btn"
+          style="background: #ef4444; color: white; margin-right: auto;">Delete Incident</button>
         <button id="btn-cancel-edit-incident" class="btn" style="background: #475569; color: white;">Cancel</button>
-        <button id="btn-submit-edit-incident" class="btn" style="background: #2563eb; color: white;">Save Changes</button>
+        <button id="btn-submit-edit-incident" class="btn" style="background: #2563eb; color: white;">Save
+          Changes</button>
       </div>
     </div>
   </div>

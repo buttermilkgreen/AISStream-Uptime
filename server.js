@@ -21,6 +21,23 @@ function safeCompare(a, b) {
   return crypto.timingSafeEqual(aBuf, bBuf);
 }
 
+// Helper to hash IP using SHA-256 for privacy
+function hashIp(ip) {
+  if (!ip) return '';
+  let cleanIp = ip;
+  if (cleanIp.startsWith('::ffff:')) {
+    cleanIp = cleanIp.substring(7);
+  }
+  return crypto.createHash('sha256').update(cleanIp).digest('hex');
+}
+
+// Helper to check if string is raw IP
+function isRawIp(str) {
+  if (!str) return false;
+  if (str.length !== 64) return true;
+  return !/^[0-9a-f]{64}$/i.test(str);
+}
+
 // 1. Simple Custom .env Parser to keep dependencies minimal
 function loadEnv() {
   const envPath = path.join(__dirname, '.env');
@@ -49,7 +66,20 @@ const SILENCE_TO_DOWN_TIMEOUT = parseInt(process.env.SILENCE_TO_DOWN_TIMEOUT_SEC
 const RATE_LIMIT_RPM = parseInt(process.env.API_RATE_LIMIT_RPM, 10) || 60;
 const CACHE_TTL_SECONDS = parseInt(process.env.API_CACHE_TTL_SECONDS, 10) || 15;
 let simulatedModeActive = false;
+let simulatedStaleActive = false;
 const serverStartTime = new Date().toISOString();
+
+// Periodic simulation timer to keep times fresh in Dev Simulation mode unless stale is simulated
+setInterval(() => {
+  if (simulatedModeActive && !simulatedStaleActive) {
+    const nowStr = new Date().toISOString();
+    currentStatus.lastChecked = nowStr;
+    if (currentStatus.state === 'Up') {
+      currentStatus.lastMessageReceived = nowStr;
+    }
+    invalidateCache();
+  }
+}, 2000);
 
 if (!process.env.ADMIN_API_KEY) {
   console.warn("\x1b[33m%s\x1b[0m", "WARNING: ADMIN_API_KEY is not configured. Manual incident editing will be unavailable.");
@@ -197,10 +227,59 @@ db.serialize(() => {
     // Ignore error
   });
 
-  // Create or Migrate status_votes table to support incident-based voting
+  // Create telemetry table if not exists
+  db.run(`
+    CREATE TABLE IF NOT EXISTS telemetry (
+      uuid TEXT PRIMARY KEY,
+      version TEXT NOT NULL,
+      enable_map_entities INTEGER DEFAULT 0,
+      include_class_b INTEGER DEFAULT 1,
+      clear_map_on_startup INTEGER DEFAULT 0,
+      map_timeout_minutes INTEGER DEFAULT 30,
+      enable_api_monitoring INTEGER DEFAULT 1,
+      watchlist_count INTEGER DEFAULT 0,
+      last_seen TEXT NOT NULL,
+      ip_hash TEXT NOT NULL
+    )
+  `);
+
+  // Create or Migrate status_votes table to support incident-based voting and hashed IPs
   db.all("PRAGMA table_info(status_votes)", (err, columns) => {
     if (!err && columns && columns.length > 0) {
+      const hasClientIp = columns.some(c => c.name === 'client_ip');
+      const hasClientIpHash = columns.some(c => c.name === 'client_ip_hash');
       const hasIncidentId = columns.some(c => c.name === 'incident_id');
+
+      // Helper to do status_votes migration chain
+      const runStatusVotesMigration = () => {
+        if (hasClientIp && !hasClientIpHash) {
+          logEvent("Migrating status_votes table: renaming client_ip to client_ip_hash...", "info");
+          db.run("ALTER TABLE status_votes RENAME COLUMN client_ip TO client_ip_hash", (alterErr) => {
+            if (alterErr) {
+              logEvent(`Failed to rename client_ip to client_ip_hash: ${alterErr.message}`, "error");
+            } else {
+              db.all("SELECT client_ip_hash, status_state, vote_type, timestamp FROM status_votes", (err2, rows) => {
+                if (!err2 && rows) {
+                  let count = 0;
+                  db.serialize(() => {
+                    rows.forEach(row => {
+                      if (isRawIp(row.client_ip_hash)) {
+                        db.run(
+                          "UPDATE status_votes SET client_ip_hash = ? WHERE client_ip_hash = ? AND status_state = ? AND vote_type = ? AND timestamp = ?",
+                          [hashIp(row.client_ip_hash), row.client_ip_hash, row.status_state, row.vote_type, row.timestamp]
+                        );
+                        count++;
+                      }
+                    });
+                    if (count > 0) logEvent(`Anonymized ${count} existing records in status_votes.`, "success");
+                  });
+                }
+              });
+            }
+          });
+        }
+      };
+
       if (!hasIncidentId) {
         logEvent("Migrating status_votes table to support incident-based voting...", "info");
         db.serialize(() => {
@@ -211,7 +290,7 @@ db.serialize(() => {
             }
             db.run(`
               CREATE TABLE status_votes (
-                client_ip TEXT NOT NULL,
+                client_ip_hash TEXT NOT NULL,
                 status_state TEXT NOT NULL,
                 vote_type TEXT NOT NULL,
                 timestamp TEXT NOT NULL,
@@ -222,31 +301,48 @@ db.serialize(() => {
                 logEvent(`Failed to create new status_votes table: ${createErr.message}`, "error");
                 return;
               }
+              const selectIpCol = hasClientIp ? "client_ip" : "client_ip_hash";
               db.run(`
-                INSERT INTO status_votes (client_ip, status_state, vote_type, timestamp)
-                SELECT client_ip, status_state, vote_type, timestamp FROM status_votes_old
+                INSERT INTO status_votes (client_ip_hash, status_state, vote_type, timestamp)
+                SELECT ${selectIpCol}, status_state, vote_type, timestamp FROM status_votes_old
               `, (insertErr) => {
                 db.run("DROP TABLE status_votes_old");
                 db.run(`
                   CREATE UNIQUE INDEX IF NOT EXISTS idx_status_votes_incident 
-                  ON status_votes(client_ip, incident_id) 
+                  ON status_votes(client_ip_hash, incident_id) 
                   WHERE incident_id IS NOT NULL
                 `);
                 db.run(`
                   CREATE UNIQUE INDEX IF NOT EXISTS idx_status_votes_state 
-                  ON status_votes(client_ip, status_state) 
+                  ON status_votes(client_ip_hash, status_state) 
                   WHERE incident_id IS NULL
                 `);
                 logEvent("Migrated status_votes successfully to support incident-based voting.", "success");
+                db.all("SELECT client_ip_hash, status_state, vote_type, timestamp FROM status_votes", (err2, rows) => {
+                  if (!err2 && rows) {
+                    db.serialize(() => {
+                      rows.forEach(row => {
+                        if (isRawIp(row.client_ip_hash)) {
+                          db.run(
+                            "UPDATE status_votes SET client_ip_hash = ? WHERE client_ip_hash = ? AND status_state = ? AND vote_type = ? AND timestamp = ?",
+                            [hashIp(row.client_ip_hash), row.client_ip_hash, row.status_state, row.vote_type, row.timestamp]
+                          );
+                        }
+                      });
+                    });
+                  }
+                });
               });
             });
           });
         });
+      } else {
+        runStatusVotesMigration();
       }
     } else {
       db.run(`
         CREATE TABLE IF NOT EXISTS status_votes (
-          client_ip TEXT NOT NULL,
+          client_ip_hash TEXT NOT NULL,
           status_state TEXT NOT NULL,
           vote_type TEXT NOT NULL,
           timestamp TEXT NOT NULL,
@@ -255,29 +351,73 @@ db.serialize(() => {
       `);
       db.run(`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_status_votes_incident 
-        ON status_votes(client_ip, incident_id) 
+        ON status_votes(client_ip_hash, incident_id) 
         WHERE incident_id IS NOT NULL
       `);
       db.run(`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_status_votes_state 
-        ON status_votes(client_ip, status_state) 
+        ON status_votes(client_ip_hash, status_state) 
         WHERE incident_id IS NULL
       `);
     }
   });
 
+  // Migrate api_logs table
+  db.all("PRAGMA table_info(api_logs)", (err, columns) => {
+    if (err) {
+      logEvent(`Failed to get schema info for api_logs: ${err.message}`, "error");
+      return;
+    }
+    const hasIp = columns.some(c => c.name === 'ip');
+    const hasIpHash = columns.some(c => c.name === 'ip_hash');
+    const hasUserAgent = columns.some(c => c.name === 'user_agent');
 
+    if (hasIp && !hasIpHash) {
+      logEvent("Migrating api_logs table: renaming ip to ip_hash...", "info");
+      db.run("ALTER TABLE api_logs RENAME COLUMN ip TO ip_hash", (alterErr) => {
+        if (alterErr) {
+          logEvent(`Failed to rename ip to ip_hash: ${alterErr.message}`, "error");
+        } else {
+          db.all("SELECT id, ip_hash FROM api_logs", (err2, rows) => {
+            if (!err2 && rows) {
+              let count = 0;
+              db.serialize(() => {
+                const stmt = db.prepare("UPDATE api_logs SET ip_hash = ? WHERE id = ?");
+                rows.forEach(row => {
+                  if (isRawIp(row.ip_hash)) {
+                    stmt.run(hashIp(row.ip_hash), row.id);
+                    count++;
+                  }
+                });
+                stmt.finalize(() => {
+                  if (count > 0) logEvent(`Anonymized ${count} existing records in api_logs.`, "success");
+                });
+              });
+            }
+          });
+        }
+      });
+    } else if (!hasIp && !hasIpHash) {
+      db.run(`
+        CREATE TABLE IF NOT EXISTS api_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          timestamp TEXT NOT NULL,
+          ip_hash TEXT NOT NULL,
+          endpoint TEXT NOT NULL,
+          status_code INTEGER NOT NULL,
+          response_time_ms INTEGER NOT NULL,
+          user_agent TEXT
+        )
+      `);
+    }
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS api_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      timestamp TEXT NOT NULL,
-      ip TEXT NOT NULL,
-      endpoint TEXT NOT NULL,
-      status_code INTEGER NOT NULL,
-      response_time_ms INTEGER NOT NULL
-    )
-  `);
+    if (!hasUserAgent) {
+      logEvent("Migrating api_logs table: adding user_agent column...", "info");
+      db.run("ALTER TABLE api_logs ADD COLUMN user_agent TEXT", (alterErr) => {
+        if (alterErr) logEvent(`Failed to add user_agent column: ${alterErr.message}`, "error");
+      });
+    }
+  });
 
   // Seed dummy logs for visualization if empty (DEV environment only)
   db.get("SELECT COUNT(*) AS count FROM api_logs", (err, row) => {
@@ -287,15 +427,14 @@ db.serialize(() => {
       const ips = ['192.168.1.50', '8.8.8.8', '1.1.1.1', '10.0.0.5', '172.16.0.2', '82.10.45.12', '90.4.52.88'];
       const statusCodes = [200, 200, 200, 429, 200, 401, 500];
       
-      const stmt = db.prepare("INSERT INTO api_logs (timestamp, ip, endpoint, status_code, response_time_ms) VALUES (?, ?, ?, ?, ?)");
+      const stmt = db.prepare("INSERT INTO api_logs (timestamp, ip_hash, endpoint, status_code, response_time_ms) VALUES (?, ?, ?, ?, ?)");
       const now = Date.now();
       
-      // Generate around 200 requests spread over the last 30 days
       for (let i = 0; i < 200; i++) {
         const daysAgo = Math.floor(Math.random() * 30);
         const hoursAgo = Math.floor(Math.random() * 24);
         const timestamp = new Date(now - (daysAgo * 24 * 60 * 60 * 1000) - (hoursAgo * 60 * 60 * 1000)).toISOString();
-        const ip = ips[Math.floor(Math.random() * ips.length)];
+        const ip = hashIp(ips[Math.floor(Math.random() * ips.length)]);
         const endpoint = endpoints[Math.floor(Math.random() * endpoints.length)];
         const statusCode = statusCodes[Math.floor(Math.random() * statusCodes.length)];
         const responseTime = Math.floor(Math.random() * 150) + 10;
@@ -1015,6 +1154,18 @@ startSilenceCheck();
 pruneApiLogs();
 setInterval(pruneApiLogs, 24 * 60 * 60 * 1000); // Clean once a day
 
+// Helper to send standard simplified status response
+function sendSimpleStatusResponse(res) {
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({
+    state: currentStatus.state,
+    lastChecked: currentStatus.lastChecked,
+    lastMessageReceived: currentStatus.lastMessageReceived,
+    simulated: simulatedModeActive,
+    simulatedStale: simulatedStaleActive
+  }));
+}
+
 // 4. HTTP API and Static Server
 const mimeTypes = {
   '.html': 'text/html',
@@ -1061,8 +1212,8 @@ const server = http.createServer((req, res) => {
         const endpoint = url.split('?')[0];
         
         db.run(
-          `INSERT INTO api_logs (timestamp, ip, endpoint, status_code, response_time_ms) VALUES (?, ?, ?, ?, ?)`,
-          [new Date().toISOString(), clientIp, endpoint, statusCode, responseTime],
+          `INSERT INTO api_logs (timestamp, ip_hash, endpoint, status_code, response_time_ms, user_agent) VALUES (?, ?, ?, ?, ?, ?)`,
+          [new Date().toISOString(), hashIp(clientIp), endpoint, statusCode, responseTime, req.headers['user-agent'] || null],
           (err) => {
             if (err) {
               console.error('Error logging API usage:', err.message);
@@ -1104,16 +1255,73 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // API - Status Endpoint
+  // API - Status Endpoint (POST for Telemetry)
+  if (req.url.startsWith('/api/v1/status') && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk.toString();
+    });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body);
+        const {
+          uuid,
+          version,
+          enable_map_entities,
+          include_class_b,
+          clear_map_on_startup,
+          map_timeout_minutes,
+          enable_api_monitoring,
+          watchlist_count
+        } = payload;
+
+        if (!uuid || !version) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing uuid or version in telemetry payload' }));
+          return;
+        }
+
+        const ipHash = hashIp(clientIp);
+        const lastSeen = new Date().toISOString();
+
+        db.run(
+          `INSERT OR REPLACE INTO telemetry (
+            uuid, version, enable_map_entities, include_class_b, 
+            clear_map_on_startup, map_timeout_minutes, enable_api_monitoring, 
+            watchlist_count, last_seen, ip_hash
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            uuid,
+            version,
+            enable_map_entities ? 1 : 0,
+            include_class_b ? 1 : 0,
+            clear_map_on_startup ? 1 : 0,
+            parseInt(map_timeout_minutes, 10) || 30,
+            enable_api_monitoring ? 1 : 0,
+            parseInt(watchlist_count, 10) || 0,
+            lastSeen,
+            ipHash
+          ],
+          (err) => {
+            if (err) {
+              console.error('Error saving telemetry:', err.message);
+            }
+            sendSimpleStatusResponse(res);
+          }
+        );
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
+      }
+    });
+    return;
+  }
+
+  // API - Status Endpoint (GET)
   if (req.url.startsWith('/api/v1/status') && req.method === 'GET') {
     const isSimple = req.url.includes('simple=true');
     if (isSimple) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        state: currentStatus.state,
-        lastChecked: currentStatus.lastChecked,
-        lastMessageReceived: currentStatus.lastMessageReceived
-      }));
+      sendSimpleStatusResponse(res);
       return;
     }
 
@@ -1193,6 +1401,7 @@ const server = http.createServer((req, res) => {
           history: slots,
           devMode: isDevMode,
           simulated: simulatedModeActive,
+          simulatedStale: simulatedStaleActive,
           silenceTimeout: SILENCE_TIMEOUT,
           activeIncident: activeIncident
         });
@@ -1236,10 +1445,10 @@ const server = http.createServer((req, res) => {
         });
 
         const userQuery = useActiveIncident
-          ? "SELECT vote_type FROM status_votes WHERE client_ip = ? AND incident_id = ?"
-          : "SELECT vote_type FROM status_votes WHERE client_ip = ? AND status_state = ? AND incident_id IS NULL";
+          ? "SELECT vote_type FROM status_votes WHERE client_ip_hash = ? AND incident_id = ?"
+          : "SELECT vote_type FROM status_votes WHERE client_ip_hash = ? AND status_state = ? AND incident_id IS NULL";
         
-        const userParams = useActiveIncident ? [clientIp, activeIncidentId] : [clientIp, state];
+        const userParams = useActiveIncident ? [hashIp(clientIp), activeIncidentId] : [hashIp(clientIp), state];
 
         db.get(
           userQuery,
@@ -1276,24 +1485,25 @@ const server = http.createServer((req, res) => {
         const incidentIdToUse = useActiveIncident ? activeIncidentId : null;
 
         const performVote = (callback) => {
+          const hashedClientIp = hashIp(clientIp);
           if (vote === 'up' || vote === 'down') {
             const timestamp = new Date().toISOString();
             db.run(
-              "INSERT OR REPLACE INTO status_votes (client_ip, status_state, vote_type, timestamp, incident_id) VALUES (?, ?, ?, ?, ?)",
-              [clientIp, state, vote, timestamp, incidentIdToUse],
+              "INSERT OR REPLACE INTO status_votes (client_ip_hash, status_state, vote_type, timestamp, incident_id) VALUES (?, ?, ?, ?, ?)",
+              [hashedClientIp, state, vote, timestamp, incidentIdToUse],
               callback
             );
           } else {
             if (useActiveIncident) {
               db.run(
-                "DELETE FROM status_votes WHERE client_ip = ? AND incident_id = ?",
-                [clientIp, incidentIdToUse],
+                "DELETE FROM status_votes WHERE client_ip_hash = ? AND incident_id = ?",
+                [hashedClientIp, incidentIdToUse],
                 callback
               );
             } else {
               db.run(
-                "DELETE FROM status_votes WHERE client_ip = ? AND status_state = ? AND incident_id IS NULL",
-                [clientIp, state],
+                "DELETE FROM status_votes WHERE client_ip_hash = ? AND status_state = ? AND incident_id IS NULL",
+                [hashedClientIp, state],
                 callback
               );
             }
@@ -1369,6 +1579,7 @@ const server = http.createServer((req, res) => {
 
         logEvent(`Simulating outage status update to: ${state}`, 'info');
         simulatedModeActive = true;
+        simulatedStaleActive = false;
 
         // Formulate detailsObj matching timeline expected details
         let detailsObj = null;
@@ -1382,7 +1593,35 @@ const server = http.createServer((req, res) => {
         updateState(state, detailsObj);
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, state, simulated: simulatedModeActive }));
+        res.end(JSON.stringify({ success: true, state, simulated: simulatedModeActive, simulatedStale: simulatedStaleActive }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Invalid JSON body: ${err.message}` }));
+      }
+    });
+    return;
+  }
+
+  // API - Toggle Simulation Stale Mode (Dev Mode only)
+  if (req.url === '/api/v1/test/stale' && req.method === 'POST') {
+    if (!isDevMode) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden: Simulation endpoint only available in DEV environment.' }));
+      return;
+    }
+
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk.toString();
+    });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body);
+        simulatedStaleActive = !!payload.stale;
+        logEvent(`Simulation stale mode set to: ${simulatedStaleActive}`, 'info');
+        invalidateCache();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, simulatedStale: simulatedStaleActive }));
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: `Invalid JSON body: ${err.message}` }));
@@ -1401,13 +1640,14 @@ const server = http.createServer((req, res) => {
 
     logEvent('Resuming live monitor from simulation mode...', 'info');
     simulatedModeActive = false;
+    simulatedStaleActive = false;
 
     // Clear ws state, transition back to Pending, and reconnect
     updateState('Pending');
     connectAISStream();
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: true, simulated: simulatedModeActive }));
+    res.end(JSON.stringify({ success: true, simulated: simulatedModeActive, simulatedStale: simulatedStaleActive }));
     return;
   }
 
@@ -1450,6 +1690,109 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(payload);
     });
+    return;
+  }
+
+  // API - Get Admin Telemetry Stats (Protected by ADMIN_API_KEY)
+  if (req.url === '/api/v1/admin/telemetry' && req.method === 'GET') {
+    const authHeader = req.headers['authorization'];
+    const adminKey = process.env.ADMIN_API_KEY;
+
+    if (!adminKey) {
+      res.writeHead(501, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Server configuration error: ADMIN_API_KEY is not set.' }));
+      return;
+    }
+
+    let authenticated = false;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const sentToken = authHeader.substring(7);
+      authenticated = safeCompare(sentToken, adminKey);
+    }
+
+    if (!authenticated) {
+      const attempts = (adminFailuresByIp.get(clientIp) || 0) + 1;
+      adminFailuresByIp.set(clientIp, attempts);
+      logEvent(`Failed admin telemetry attempt from ${clientIp}. Total attempts: ${attempts}`, "warning");
+      
+      if (attempts >= 5) {
+        bannedIPs.add(clientIp);
+        logEvent(`IP ${clientIp} temporarily locked out due to repeated admin authentication failures.`, "error");
+      }
+      
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized: Invalid Admin Key' }));
+      return;
+    }
+
+    // Reset failure counter on success
+    adminFailuresByIp.delete(clientIp);
+
+    const runQuery = (sql, params = []) => {
+      return new Promise((resolve, reject) => {
+        db.all(sql, params, (err, rows) => {
+          if (err) reject(err);
+          else resolve(rows);
+        });
+      });
+    };
+
+    const now = new Date();
+    const time7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    Promise.all([
+      runQuery("SELECT COUNT(*) AS count FROM telemetry"),
+      runQuery("SELECT COUNT(*) AS count FROM telemetry WHERE last_seen >= ?", [time7d]),
+      runQuery("SELECT version, COUNT(*) AS count FROM telemetry GROUP BY version ORDER BY count DESC"),
+      runQuery("SELECT enable_map_entities, COUNT(*) AS count FROM telemetry GROUP BY enable_map_entities"),
+      runQuery("SELECT include_class_b, COUNT(*) AS count FROM telemetry GROUP BY include_class_b"),
+      runQuery("SELECT clear_map_on_startup, COUNT(*) AS count FROM telemetry GROUP BY clear_map_on_startup"),
+      runQuery("SELECT enable_api_monitoring, COUNT(*) AS count FROM telemetry GROUP BY enable_api_monitoring"),
+      runQuery("SELECT AVG(watchlist_count) AS avg_watchlist, MAX(watchlist_count) AS max_watchlist FROM telemetry"),
+      runQuery("SELECT AVG(map_timeout_minutes) AS avg_timeout FROM telemetry"),
+      runQuery("SELECT user_agent, COUNT(*) AS count FROM api_logs WHERE user_agent IS NOT NULL GROUP BY user_agent ORDER BY count DESC LIMIT 15"),
+      runQuery("SELECT uuid, version, enable_map_entities, include_class_b, clear_map_on_startup, map_timeout_minutes, enable_api_monitoring, watchlist_count, last_seen, ip_hash FROM telemetry ORDER BY last_seen DESC")
+    ]).then(([
+      totalInstalls,
+      active7d,
+      versions,
+      mapEntities,
+      classB,
+      clearOnStartup,
+      apiMonitoring,
+      watchlist,
+      mapTimeout,
+      userAgents,
+      installsList
+    ]) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        totalInstalls: totalInstalls[0] ? totalInstalls[0].count : 0,
+        active7d: active7d[0] ? active7d[0].count : 0,
+        versions,
+        mapEntities,
+        classB,
+        clearOnStartup,
+        apiMonitoring,
+        watchlist: {
+          avg: watchlist[0] ? (watchlist[0].avg_watchlist || 0) : 0,
+          max: watchlist[0] ? (watchlist[0].max_watchlist || 0) : 0
+        },
+        mapTimeout: {
+          avg: mapTimeout[0] ? (mapTimeout[0].avg_timeout || 0) : 0
+        },
+        userAgents,
+        installsList: installsList.map(item => ({
+          ...item,
+          short_uuid: item.uuid ? item.uuid.substring(0, 8) + '...' : 'unknown',
+          short_ip: item.ip_hash ? item.ip_hash.substring(0, 8) + '...' : 'unknown'
+        }))
+      }));
+    }).catch(err => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    });
+
     return;
   }
 
@@ -1502,13 +1845,13 @@ const server = http.createServer((req, res) => {
     const time30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
     Promise.all([
-      runQuery("SELECT COUNT(DISTINCT ip) AS count FROM api_logs WHERE timestamp >= ?", [time24h]),
-      runQuery("SELECT COUNT(DISTINCT ip) AS count FROM api_logs WHERE timestamp >= ?", [time7d]),
-      runQuery("SELECT COUNT(DISTINCT ip) AS count FROM api_logs WHERE timestamp >= ?", [time30d]),
+      runQuery("SELECT COUNT(DISTINCT ip_hash) AS count FROM api_logs WHERE timestamp >= ?", [time24h]),
+      runQuery("SELECT COUNT(DISTINCT ip_hash) AS count FROM api_logs WHERE timestamp >= ?", [time7d]),
+      runQuery("SELECT COUNT(DISTINCT ip_hash) AS count FROM api_logs WHERE timestamp >= ?", [time30d]),
       runQuery("SELECT strftime('%Y-%m-%d', timestamp) AS date, COUNT(*) AS count FROM api_logs WHERE timestamp >= ? GROUP BY date ORDER BY date ASC", [time30d]),
       runQuery("SELECT endpoint, COUNT(*) AS count FROM api_logs GROUP BY endpoint ORDER BY count DESC"),
       runQuery("SELECT status_code, COUNT(*) AS count FROM api_logs GROUP BY status_code ORDER BY count DESC"),
-      runQuery("SELECT ip, COUNT(*) AS count FROM api_logs GROUP BY ip ORDER BY count DESC LIMIT 10")
+      runQuery("SELECT ip_hash AS ip, COUNT(*) AS count FROM api_logs GROUP BY ip_hash ORDER BY count DESC LIMIT 10")
     ]).then(([unique24h, unique7d, unique30d, dailyVolume, endpoints, statusCodes, topConsumers]) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
@@ -1520,7 +1863,10 @@ const server = http.createServer((req, res) => {
         dailyVolume,
         endpoints,
         statusCodes,
-        topConsumers
+        topConsumers: topConsumers.map(c => ({
+          ip: c.ip ? (c.ip.length === 64 ? c.ip.substring(0, 8) + '...' : c.ip) : 'unknown',
+          count: c.count
+        }))
       }));
     }).catch(err => {
       res.writeHead(500, { 'Content-Type': 'application/json' });

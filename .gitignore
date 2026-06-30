@@ -12,3 +12,7 @@ node_modules/
 *.db
 
 .DS_Store
+
+# Reference code
+reference/
+

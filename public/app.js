@@ -128,6 +128,9 @@ let isAdminVerified = false;
 let chartVolume = null;
 let chartEndpoints = null;
 let chartStatusCodes = null;
+let chartTelemetryVersions = null;
+let chartTelemetryAdoption = null;
+let chartUserAgents = null;
 
 async function fetchAndRenderDashboard() {
   const dashboardEl = document.getElementById('admin-dashboard');
@@ -268,6 +271,182 @@ async function fetchAndRenderDashboard() {
         }
       }
     });
+
+    // 4. Fetch and Render Telemetry Data
+    const telemetryRes = await fetch('/api/v1/admin/telemetry', {
+      headers: {
+        'Authorization': `Bearer ${key}`
+      }
+    });
+    if (telemetryRes.ok) {
+      const telData = await telemetryRes.json();
+      
+      // Update Telemetry metrics
+      document.getElementById('metric-telemetry-total').textContent = telData.totalInstalls;
+      document.getElementById('metric-telemetry-active-7d').textContent = telData.active7d;
+      document.getElementById('metric-telemetry-avg-watchlist').textContent = Math.round(telData.watchlist.avg * 10) / 10;
+      document.getElementById('metric-telemetry-avg-timeout').textContent = Math.round(telData.mapTimeout.avg) + 'm';
+
+      // Render Telemetry Client List Table
+      const telBody = document.getElementById('telemetry-clients-body');
+      telBody.innerHTML = '';
+      if (telData.installsList && telData.installsList.length > 0) {
+        telData.installsList.forEach(client => {
+          const tr = document.createElement('tr');
+          
+          const tdUuid = document.createElement('td');
+          tdUuid.textContent = client.short_uuid;
+          tdUuid.title = client.uuid;
+          
+          const tdVer = document.createElement('td');
+          tdVer.textContent = client.version;
+          
+          const tdIp = document.createElement('td');
+          tdIp.textContent = client.short_ip;
+          tdIp.title = client.ip_hash;
+          
+          const tdMap = document.createElement('td');
+          tdMap.textContent = client.enable_map_entities ? 'Enabled' : 'Disabled';
+          
+          const tdClassB = document.createElement('td');
+          tdClassB.textContent = client.include_class_b ? 'Enabled' : 'Disabled';
+
+          const tdClear = document.createElement('td');
+          tdClear.textContent = client.clear_map_on_startup ? 'Enabled' : 'Disabled';
+
+          const tdTimeout = document.createElement('td');
+          tdTimeout.textContent = client.map_timeout_minutes + 'm';
+
+          const tdApi = document.createElement('td');
+          tdApi.textContent = client.enable_api_monitoring ? 'Enabled' : 'Disabled';
+          
+          const tdWatch = document.createElement('td');
+          tdWatch.textContent = client.watchlist_count;
+          
+          const tdLast = document.createElement('td');
+          tdLast.textContent = new Date(client.last_seen).toLocaleString();
+          
+          tr.appendChild(tdUuid);
+          tr.appendChild(tdVer);
+          tr.appendChild(tdIp);
+          tr.appendChild(tdMap);
+          tr.appendChild(tdClassB);
+          tr.appendChild(tdClear);
+          tr.appendChild(tdTimeout);
+          tr.appendChild(tdApi);
+          tr.appendChild(tdWatch);
+          tr.appendChild(tdLast);
+          
+          telBody.appendChild(tr);
+        });
+      } else {
+        telBody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 1rem;">No installations registered</td></tr>';
+      }
+
+      // Destroy old telemetry charts if they exist
+      if (chartTelemetryVersions) chartTelemetryVersions.destroy();
+      if (chartTelemetryAdoption) chartTelemetryAdoption.destroy();
+      if (chartUserAgents) chartUserAgents.destroy();
+
+      // App Versions Chart
+      const tvCtx = document.getElementById('chart-telemetry-versions').getContext('2d');
+      const tvLabels = telData.versions.map(v => v.version);
+      const tvCounts = telData.versions.map(v => v.count);
+      chartTelemetryVersions = new Chart(tvCtx, {
+        type: 'doughnut',
+        data: {
+          labels: tvLabels.length ? tvLabels : ['No Data'],
+          datasets: [{
+            data: tvCounts.length ? tvCounts : [0],
+            backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#64748b']
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { font: fontConfig, boxWidth: 12 } }
+          }
+        }
+      });
+
+      // Adoption Rates Chart
+      const taCtx = document.getElementById('chart-telemetry-adoption').getContext('2d');
+      const total = telData.totalInstalls || 1;
+      const getAdoptionCount = (list, keyVal) => {
+        const item = list.find(x => Object.values(x)[0] === keyVal);
+        return item ? item.count : 0;
+      };
+      
+      const mapAdoption = Math.round((getAdoptionCount(telData.mapEntities, 1) / total) * 100);
+      const classBAdoption = Math.round((getAdoptionCount(telData.classB, 1) / total) * 100);
+      const apiMonitorAdoption = Math.round((getAdoptionCount(telData.apiMonitoring, 1) / total) * 100);
+      const clearStartupAdoption = Math.round((getAdoptionCount(telData.clearOnStartup, 1) / total) * 100);
+
+      chartTelemetryAdoption = new Chart(taCtx, {
+        type: 'bar',
+        data: {
+          labels: ['Map Entities', 'Include Class B', 'API Monitor', 'Clear Startup'],
+          datasets: [{
+            label: 'Adoption Rate %',
+            data: [mapAdoption, classBAdoption, apiMonitorAdoption, clearStartupAdoption],
+            backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ec4899'],
+            borderRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: { titleFont: fontConfig, bodyFont: fontConfig }
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { font: fontConfig } },
+            y: { beginAtZero: true, max: 100, ticks: { font: fontConfig, callback: value => value + '%' } }
+          }
+        }
+      });
+
+      // User Agents Chart
+      const uaCtx = document.getElementById('chart-user-agents').getContext('2d');
+      const uaGroups = {};
+      telData.userAgents.forEach(item => {
+        const ua = item.user_agent.toLowerCase();
+        let name = 'Other';
+        if (ua.includes('uptime-kuma') || ua.includes('uptimekuma')) {
+          name = 'Uptime Kuma';
+        } else if (ua.includes('ais-ship-tracker')) {
+          name = 'Ship Tracker App';
+        } else if (ua.includes('curl') || ua.includes('wget')) {
+          name = 'curl/commandline';
+        } else if (ua.includes('mozilla') || ua.includes('chrome') || ua.includes('safari') || ua.includes('firefox')) {
+          name = 'Web Browser';
+        }
+        uaGroups[name] = (uaGroups[name] || 0) + item.count;
+      });
+
+      const uaLabels = Object.keys(uaGroups);
+      const uaCounts = Object.values(uaGroups);
+
+      chartUserAgents = new Chart(uaCtx, {
+        type: 'doughnut',
+        data: {
+          labels: uaLabels.length ? uaLabels : ['No Data'],
+          datasets: [{
+            data: uaCounts.length ? uaCounts : [0],
+            backgroundColor: ['#6366f1', '#14b8a6', '#f43f5e', '#eab308', '#64748b']
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { font: fontConfig, boxWidth: 12 } }
+          }
+        }
+      });
+    }
 
   } catch (e) {
     console.error('Error fetching API usage data:', e);
@@ -1017,6 +1196,7 @@ async function fetchStatus() {
     const devHud = document.getElementById('developer-hud');
     const simBadge = document.getElementById('simulation-badge');
     const consoleDrawer = document.getElementById('console-drawer');
+    const toggleStaleBtn = document.getElementById('btn-toggle-stale');
     if (data.devMode) {
       if (devHud) devHud.style.display = 'block';
       if (consoleDrawer) consoleDrawer.style.display = 'block';
@@ -1028,6 +1208,26 @@ async function fetchStatus() {
           statusBanner.classList.add('simulation-active');
         } else {
           statusBanner.classList.remove('simulation-active');
+        }
+      }
+      if (toggleStaleBtn) {
+        if (data.simulated) {
+          toggleStaleBtn.disabled = false;
+          toggleStaleBtn.style.opacity = '1';
+          toggleStaleBtn.style.cursor = 'pointer';
+          if (data.simulatedStale) {
+            toggleStaleBtn.classList.add('active');
+            toggleStaleBtn.textContent = 'Unfreeze Times (Resume Updates)';
+          } else {
+            toggleStaleBtn.classList.remove('active');
+            toggleStaleBtn.textContent = 'Freeze Times (Simulate Stale)';
+          }
+        } else {
+          toggleStaleBtn.disabled = true;
+          toggleStaleBtn.style.opacity = '0.5';
+          toggleStaleBtn.style.cursor = 'not-allowed';
+          toggleStaleBtn.classList.remove('active');
+          toggleStaleBtn.textContent = 'Freeze Times (Simulate Stale)';
         }
       }
     } else {
@@ -1121,6 +1321,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const simButtons = document.querySelectorAll('#developer-hud .hud-btn[data-state]');
   const payloadField = document.getElementById('sim-error-payload');
   const resumeBtn = document.getElementById('btn-resume-live');
+  const toggleStaleBtn = document.getElementById('btn-toggle-stale');
 
   // Admin verification helper
   async function verifyAdminKey(token) {
@@ -1151,15 +1352,15 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Footer triggers key settings popover
-  const appFooter = document.getElementById('app-footer');
+  const adminTrigger = document.getElementById('admin-trigger');
   const adminKeyModal = document.getElementById('admin-key-modal');
   const closeAdminKeyBtn = document.getElementById('btn-close-admin-key');
   const saveAdminKeyBtn = document.getElementById('btn-save-admin-key');
   const clearAdminKeyBtn = document.getElementById('btn-clear-admin-key');
   const adminKeyInput = document.getElementById('admin-api-key-input');
 
-  if (appFooter) {
-    appFooter.addEventListener('click', () => {
+  if (adminTrigger) {
+    adminTrigger.addEventListener('click', () => {
       adminKeyInput.value = localStorage.getItem('adminApiKey') || '';
       adminKeyModal.style.display = 'flex';
     });
@@ -1469,6 +1670,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       } catch (err) {
         console.error("Resume request error:", err);
+      }
+    });
+  }
+
+  if (toggleStaleBtn) {
+    toggleStaleBtn.addEventListener('click', async () => {
+      const isStale = toggleStaleBtn.classList.contains('active');
+      try {
+        const res = await fetch('/api/v1/test/stale', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stale: !isStale })
+        });
+        if (res.ok) {
+          await fetchStatus();
+          if (isLogsOpen) await fetchLogs();
+        } else {
+          const err = await res.json();
+          alert(`Failed to set stale simulation: ${err.error}`);
+        }
+      } catch (err) {
+        console.error("Stale request error:", err);
       }
     });
   }

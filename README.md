@@ -41,7 +41,6 @@ Example response:
   "simulated": false
 }
 ```
-
 #### GET `/api/v1/incidents`
 Returns a list of past and ongoing outages from the database, ordered newest first. Includes voting stats, override counts, and custom admin notes/links if configured.
 ```json
@@ -88,33 +87,6 @@ Example response:
   "up": 12,
   "down": 4,
   "userVote": "down"
-}
-```
-
-#### GET `/api/v1/admin/api-usage`
-Protected by `ADMIN_API_KEY`. Returns analytical data tracking API calls from external users, unique IP counts over 24h/7d/30d, daily volume patterns, and top consumer IPs.
-- **Headers**: `Authorization: Bearer <ADMIN_API_KEY>`
-
-Example response:
-```json
-{
-  "uniqueIPs": {
-    "last24h": 5,
-    "last7d": 12,
-    "last30d": 34
-  },
-  "dailyVolume": [
-    { "date": "2026-06-23", "count": 150 }
-  ],
-  "endpoints": [
-    { "endpoint": "/api/v1/status", "count": 120 }
-  ],
-  "statusCodes": [
-    { "status_code": 200, "count": 140 }
-  ],
-  "topConsumers": [
-    { "ip": "192.168.1.50", "count": 85 }
-  ]
 }
 ```
 
@@ -175,6 +147,10 @@ Returns the 50 most recent console log messages.
 #### POST `/api/v1/test/simulate`
 Forces a simulated outage status. 
 - **Request Body**: `{"state": "Silent Failure"}`
+
+#### POST `/api/v1/test/stale`
+Forces a simulated stale connection state.
+- **Request Body**: `{"stale": true}`
 
 #### POST `/api/v1/test/resume`
 Resumes live monitoring and cancels the active simulation.

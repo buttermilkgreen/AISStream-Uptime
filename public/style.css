@@ -137,6 +137,18 @@ body {
   border-color: #cbd5e1;
 }
 
+#btn-support {
+  background-color: #0f172a;
+  color: #ffffff;
+  border-color: #0f172a;
+}
+
+#btn-support:hover {
+  background-color: #1e293b;
+  border-color: #1e293b;
+  color: #ffffff;
+}
+
 /* System Status Banner */
 .status-banner {
   border-radius: 12px;
@@ -796,6 +808,15 @@ body {
   user-select: none;
 }
 
+.app-footer a {
+  color: var(--text-secondary);
+  text-decoration: underline;
+}
+
+.app-footer a:hover {
+  color: var(--text-primary);
+}
+
 /* Dynamic incident coloring & ongoing states */
 .incident-row.Down .incident-content {
   border-left-color: #ef4444;
@@ -1177,17 +1198,36 @@ body {
   border-top: 1px solid #312e81;
   padding-top: 0.75rem;
   display: flex;
-  justify-content: flex-end;
+  gap: 0.75rem;
+  justify-content: space-between;
 }
 
 .btn-resume {
   background: #475569;
   color: #f1f5f9;
   border-color: #64748b;
-  width: 100%;
+  flex: 1;
 }
 .btn-resume:hover {
   background: #64748b;
+}
+
+.btn-stale {
+  background: #7c2d12;
+  color: #ffedd5;
+  border-color: #9a3412;
+  flex: 1;
+}
+.btn-stale:hover {
+  background: #9a3412;
+}
+.btn-stale.active {
+  background: #ea580c;
+  color: #ffffff;
+  border-color: #f97316;
+}
+.btn-stale.active:hover {
+  background: #f97316;
 }
 
 /* Simulation badge for status banner */

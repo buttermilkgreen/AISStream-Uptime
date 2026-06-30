@@ -17,3 +17,7 @@ Thumbs.db
 # Ignore version control files
 .git
 .gitignore
+
+# Reference code
+reference/
+

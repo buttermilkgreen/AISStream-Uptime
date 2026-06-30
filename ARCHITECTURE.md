@@ -30,15 +30,17 @@ The backend is built in pure Node.js without heavy frameworks (e.g., Express) to
 * **Static File Server**: Delivers the static assets located in the `/public` folder.
 * **HTTP API Endpoints**:
   * `GET /api/v1/status`: Returns current system status state, last checked timestamps, rolling 30-minute heartbeat history, `devMode`, `simulated`, plus an `activeIncident` object (containing `id`, `start_time`, `admin_notes`, `admin_link`, `admin_link_text`) if there is currently an ongoing outage. Supports query parameter `?simple=true` to return only live connection metadata instantly.
+  * `POST /api/v1/status`: Receives anonymous client telemetry (UUID, app version, configuration settings, and watchlist count) from the ship tracker app, updates/replaces the client's telemetry record in the database, and returns the standard simplified status JSON response (equivalent to `GET /api/v1/status?simple=true`).
   * `GET /api/v1/health`: A lightweight check returning `{"status":"ok"}` instantly without database queries or caching.
   * `GET /api/v1/logs` (DEV mode only): Returns the 50 most recent console log messages stored in memory. Returns `403 Forbidden` in production.
   * `GET /api/v1/incidents`: Query historical incidents and active outages ordered reverse-chronologically (`start_time DESC`).
   * `POST /api/v1/admin/verify`: Validate if a provided API key matches the configured `ADMIN_API_KEY`. Used to verify credentials before granting client-side access. Includes IP-lockout protection.
-  * `GET /api/v1/admin/api-usage`: Retrieve aggregated API usage statistics (unique IPs, daily volume, endpoints, status codes, and top consumers) for direct API clients. Authorized via `Authorization: Bearer <ADMIN_API_KEY>`. Includes IP-lockout protection.
+  * `GET /api/v1/admin/api-usage`: Retrieve aggregated API usage statistics (unique client hashes, daily volume, endpoints, status codes, and top consumers) for direct API clients. Client IPs are cryptographically hashed using SHA-256 in-memory before querying or logging. Authorized via `Authorization: Bearer <ADMIN_API_KEY>`. Includes IP-lockout protection.
+  * `GET /api/v1/admin/telemetry`: Retrieve aggregated ship tracker telemetry (total installs, 7d active, version distribution, adoption rates, client user-agents, and a list of active installations). IPs and UUIDs are shortened/masked in the response to protect anonymity. Authorized via `Authorization: Bearer <ADMIN_API_KEY>`. Includes IP-lockout protection.
   * `PATCH /api/v1/incidents/:id`: Manually update an incident's fields such as `start_time`, `outage_type`, `admin_notes`, `admin_link`, and `admin_link_text` (authorized via `Authorization: Bearer <ADMIN_API_KEY>`). Includes IP-lockout protection for invalid attempts.
   * `DELETE /api/v1/incidents/:id`: Remove an incident from the database (authorized via `Authorization: Bearer <ADMIN_API_KEY>`). If it was the active ongoing incident, automatically rolls back and marks the next most recent incident as ongoing, resuming status and watchdog timers. Includes IP-lockout protection.
-  * `GET /api/v1/votes`: Query consensus vote counts (Agree / Disagree) for a given status state, along with the caller's active vote.
-  * `POST /api/v1/vote`: Submit, change, or withdraw a vote on a status state.
+  * `GET /api/v1/votes`: Query consensus vote counts (Agree / Disagree) for a given status state, along with the caller's active vote (queried via hashed IP).
+  * `POST /api/v1/vote`: Submit, change, or withdraw a vote on a status state (stored via hashed IP).
   * `POST /api/v1/test/simulate` (DEV mode only): Simulates manual state transitions (e.g. `Down`, `Silent Failure`, `Auth Error`, `Up`) with optional custom error message payloads.
   * `POST /api/v1/test/resume` (DEV mode only): Clears simulated state and resumes live monitoring of `stream.aisstream.io`.
 * **WebSocket Client**: Establishes a persistent connection to `wss://stream.aisstream.io/v0/stream`, subscribes to shipping vessel position reports in a defined geographical bounding box, and monitors stream state.
@@ -111,8 +113,7 @@ All downtime windows are tracked persistently using SQLite (`uptime.db`) via the
 ### Database Table: `status_votes`
 Used to manage consensus votes for system status states and active outage incidents (Agree / Disagree).
 - Restricts voters to one vote per unique incident window (where `incident_id` is defined) or one vote per unique status state (where `incident_id` is null, e.g. for the "Up" state).
-- Stores the client's IP address, the status state name, the vote type (`up` or `down`), a timestamp, and the associated `incident_id` (which is NULL if there is no active outage).
-
+- Stores the client's hashed IP address (`client_ip_hash`), the status state name, the vote type (`up` or `down`), a timestamp, and the associated `incident_id` (which is NULL if there is no active outage).
 
 ### Database Table: `api_logs`
 Used to log and analyze direct client calls to public endpoints (excluding the frontend dashboard requests and health check metrics). A background pruning interval automatically deletes logs older than 30 days.
@@ -121,10 +122,27 @@ Used to log and analyze direct client calls to public endpoints (excluding the f
 | :--- | :--- | :--- |
 | `id` | `INTEGER` | Primary key (Auto-incremented) |
 | `timestamp` | `TEXT` | ISO-8601 Timestamp of the request |
-| `ip` | `TEXT` | Client IP address of the caller |
+| `ip_hash` | `TEXT` | Cryptographically hashed client IP (SHA-256) |
 | `endpoint` | `TEXT` | Target API path (query parameters stripped) |
 | `status_code` | `INTEGER` | HTTP response code (e.g. 200, 429, 500) |
 | `response_time_ms` | `INTEGER` | Latency in milliseconds between request and finished response |
+| `user_agent` | `TEXT` | The User-Agent header of the caller |
+
+### Database Table: `telemetry`
+Used to track anonymous configuration statistics sent by instances of the AIS Ship Tracker app.
+
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `uuid` | `TEXT` | Primary key. A persistent random UUID generated by the client |
+| `version` | `TEXT` | The version of the ship tracker app (e.g., `1.4.5`) |
+| `enable_map_entities` | `INTEGER` | Boolean flag (0 or 1) indicating if map entities are enabled |
+| `include_class_b` | `INTEGER` | Boolean flag (0 or 1) indicating if Class B vessels are included |
+| `clear_map_on_startup` | `INTEGER` | Boolean flag (0 or 1) indicating if map clears on startup |
+| `map_timeout_minutes` | `INTEGER` | Timeout setting in minutes for mapping vessels |
+| `enable_api_monitoring` | `INTEGER` | Boolean flag (0 or 1) indicating if API monitor check is active |
+| `watchlist_count` | `INTEGER` | Number of MMSIs on the user's watchlist filter |
+| `last_seen` | `TEXT` | ISO-8601 Timestamp of the last check-in |
+| `ip_hash` | `TEXT` | Hashed client IP address (SHA-256) |
 
 ### Incident Timeline JSON Structure (`details`)
 To track how errors mutate during a single outage (e.g., transitioning from a network drop to successive connection timeouts), the `details` field is stored as a structured timeline payload:
@@ -180,9 +198,13 @@ The frontend is a single-page app built using semantic HTML5, Vanilla JavaScript
 * **Rate Limit Toast Notification**: If the client exceeds the local API rate limit, the global fetch interceptor catches the `HTTP 429` status code and displays a non-intrusive, premium floating toast notification warning at the top of the viewport, which automatically auto-dismisses after 5 seconds.
 * **Developer Simulation HUD**: Appears only in development environments (`NODE_ENV=DEV` or `DEV=true`). Allows triggering simulated outages, inputting simulated raw error text, and reverting back to live tracking.
 * **Admin API Usage Dashboard**: Visible at the bottom of the main layout only when verified as administrator. It shows:
-  * **Metric Cards**: Active user counts (unique IPs) over the last 24 hours, 7 days, and 30 days.
+  * **Metric Cards**: Active user counts (unique IP hashes) over the last 24 hours, 7 days, and 30 days.
   * **Charts**: Visualizations of Daily Request Volume (bar chart), Endpoint Distribution (doughnut chart), and Status Code Distribution (doughnut chart).
-  * **Top Consumers**: Data table summarizing the 10 most active client IP addresses and their request volumes.
+  * **Top Consumers**: Data table summarizing the 10 most active clients, showing shortened 8-character IP hashes instead of plain IP addresses to ensure anonymity.
+  * **Ship Tracker Telemetry Panel**:
+    * **Metric Cards**: Total registered installations, 7-day active installations, average watchlist size, and average mapping timeout configuration.
+    * **Charts**: App version distribution (doughnut chart), setting adoption rates (bar chart comparing map entities, class B tracking, API monitor, and clear startup config adoption), and client User-Agent distribution (e.g. Uptime Kuma vs. Ship Tracker App vs. Web Browser).
+    * **Active Installations Table**: Details all active tracker clients, showing UUID and IP hashes masked to their first 8 characters (e.g., `eff8e7ca...`), alongside app version, configuration options, and check-in times.
   * **Responsive Grid**: Flexes to full-width stacked list on mobile devices and 2-column grid layout on larger screens, keeping charts readable and aligned.
 
 ---
