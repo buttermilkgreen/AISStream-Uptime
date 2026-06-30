@@ -1351,18 +1351,30 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Footer triggers key settings popover
-  const adminTrigger = document.getElementById('admin-trigger');
+  // Header clicks trigger key settings popover (5 clicks easter egg)
+  const appTitle = document.getElementById('app-title');
   const adminKeyModal = document.getElementById('admin-key-modal');
   const closeAdminKeyBtn = document.getElementById('btn-close-admin-key');
   const saveAdminKeyBtn = document.getElementById('btn-save-admin-key');
   const clearAdminKeyBtn = document.getElementById('btn-clear-admin-key');
   const adminKeyInput = document.getElementById('admin-api-key-input');
 
-  if (adminTrigger) {
-    adminTrigger.addEventListener('click', () => {
-      adminKeyInput.value = localStorage.getItem('adminApiKey') || '';
-      adminKeyModal.style.display = 'flex';
+  let headerClicks = 0;
+  let headerClickTimeout;
+
+  if (appTitle) {
+    appTitle.addEventListener('click', () => {
+      headerClicks++;
+      clearTimeout(headerClickTimeout);
+      if (headerClicks === 5) {
+        headerClicks = 0;
+        adminKeyInput.value = localStorage.getItem('adminApiKey') || '';
+        adminKeyModal.style.display = 'flex';
+      } else {
+        headerClickTimeout = setTimeout(() => {
+          headerClicks = 0;
+        }, 3000); // reset count after 3 seconds of inactivity
+      }
     });
   }
 
