@@ -102,6 +102,8 @@ body {
   letter-spacing: -0.02em;
   color: var(--text-primary);
   margin: 0;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .logo-subtitle {

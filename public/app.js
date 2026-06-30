@@ -1363,7 +1363,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let headerClickTimeout;
 
   if (appTitle) {
-    appTitle.addEventListener('click', () => {
+    appTitle.addEventListener('pointerdown', () => {
       headerClicks++;
       clearTimeout(headerClickTimeout);
       if (headerClicks === 5) {
