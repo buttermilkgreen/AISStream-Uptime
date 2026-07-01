@@ -21,9 +21,5 @@ services:
       - DEV=${DEV}
     volumes:
       # Persist SQLite database using a Docker Named Volume to resolve host permission blocks.
-      - ais_database_volume:/usr/src/app/data
-
-volumes:
-  ais_database_volume:
-
-
+      # - ais_database_volume:/usr/src/app/data
+      - /root/ais-uptime-monitor/data:/usr/src/app/data
