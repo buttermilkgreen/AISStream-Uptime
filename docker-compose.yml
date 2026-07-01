@@ -30,7 +30,7 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: cloudflare-tunnel
     restart: always
-    command: tunnel --no-autoupdate run --protocol tcp
+    command: tunnel --no-autoupdate run
     environment:
       # We reference a secure environment variable here
       - TUNNEL_TOKEN=${TUNNEL_TOKEN}
