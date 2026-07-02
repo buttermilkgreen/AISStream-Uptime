@@ -6,8 +6,8 @@ services:
     container_name: aisstream-uptime-monitor
     restart: always
     ports:
-      # Expose port 3000 of the container to port 3000 on the host Proxmox VM/LXC
-      - "3000:3000"
+      # If BIND_IP is not set, it defaults to 127.0.0.1 (secure for VPS)
+      - "${BIND_IP:-127.0.0.1}:3000:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000
@@ -20,9 +20,8 @@ services:
       - ADMIN_API_KEY=${ADMIN_API_KEY}
       - DEV=${DEV}
     volumes:
-      # Persist SQLite database using a Docker Named Volume to resolve host permission blocks.
-      # - ais_database_volume:/usr/src/app/data
-      - /root/ais-uptime-monitor/data:/usr/src/app/data
+      # If DATA_VOLUME_PATH is not set, it defaults to a local './data' folder
+      - ${DATA_VOLUME_PATH:-./data}:/usr/src/app/data
     networks:
       - uptime_network
 
@@ -30,9 +29,10 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: cloudflare-tunnel
     restart: always
+    profiles:
+      - prod
     command: tunnel --no-autoupdate run
     environment:
-      # We reference a secure environment variable here
       - TUNNEL_TOKEN=${TUNNEL_TOKEN}
     networks:
       - uptime_network
