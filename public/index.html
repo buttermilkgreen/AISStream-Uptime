@@ -26,6 +26,7 @@
         <p class="logo-subtitle">Unofficial uptime monitor</p>
       </div>
       <div class="header-buttons">
+        <a href="/admin" class="btn" id="btn-admin-link" style="display: none; background: #2563eb; color: white;">Admin Dashboard</a>
         <a href="https://github.com/aisstream/issues/issues" class="btn" id="btn-subscribe" target="_blank" rel="noopener noreferrer">
           <svg class="btn-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true" style="margin-right: 6px; display: inline-block; vertical-align: text-bottom;">
             <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.35 3.12.88.01.47.01.84.01.93 0 .22-.16.47-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path>
@@ -59,58 +60,34 @@
             <div id="status-banner-link-wrapper" style="display: none; margin-top: 10px;"></div>
           </div>
           <div id="status-voting" class="status-voting" style="display: none; flex-shrink: 0; margin-left: auto;">
-            <!-- <span class="voting-label">Label</span> -->
-            <div class="vote-buttons">
-              <button id="vote-up-btn" class="vote-btn" title="Thumbs Up">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                  stroke-linejoin="round" class="vote-icon">
-                  <path
-                    d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3">
-                  </path>
-                </svg>
-                <span id="vote-up-count" class="vote-count">0</span>
-              </button>
-              <button id="vote-down-btn" class="vote-btn" title="Thumbs Down">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                  stroke-linejoin="round" class="vote-icon">
-                  <path
-                    d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3">
-                  </path>
-                </svg>
-                <span id="vote-down-count" class="vote-count">0</span>
-              </button>
+            <div class="status-voting-pill">
+              <!-- <span class="voting-label">Label</span> -->
+              <div class="vote-buttons">
+                <button id="vote-up-btn" class="vote-btn" title="Thumbs Up">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" class="vote-icon">
+                    <path
+                      d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3">
+                    </path>
+                  </svg>
+                  <span id="vote-up-count" class="vote-count">0</span>
+                </button>
+                <button id="vote-down-btn" class="vote-btn" title="Thumbs Down">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" class="vote-icon">
+                    <path
+                      d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3">
+                    </path>
+                  </svg>
+                  <span id="vote-down-count" class="vote-count">0</span>
+                </button>
+              </div>
             </div>
+            <span class="vote-period-text">last 24 hours</span>
           </div>
         </div>
       </div>
 
-      <!-- Developer Simulation HUD (Visible only when in devMode) -->
-      <div id="developer-hud" class="dev-hud-card" style="display: none;">
-        <div class="hud-header">
-          <div class="hud-title-area">
-            <span class="hud-icon">🛠️</span>
-            <h3>Developer Simulation Control</h3>
-          </div>
-          <span id="simulation-badge" class="sim-badge" style="display: none;">Simulation Active</span>
-        </div>
-        <div class="hud-body">
-          <div class="hud-field">
-            <label for="sim-error-payload">WebSocket Error / Details Payload (Optional)</label>
-            <textarea id="sim-error-payload"
-              placeholder="e.g. Host unreachable, or raw JSON like: {&quot;message&quot;: &quot;Auth failed&quot;, &quot;raw&quot;: {&quot;code&quot;: 1008}}"></textarea>
-          </div>
-          <div class="hud-actions-grid">
-            <button type="button" class="hud-btn btn-up" data-state="Up">Simulate Up</button>
-            <button type="button" class="hud-btn btn-sf" data-state="Silent Failure">Simulate Silent Failure</button>
-            <button type="button" class="hud-btn btn-auth" data-state="Auth Error">Simulate Auth Error</button>
-            <button type="button" class="hud-btn btn-down" data-state="Down">Simulate Down</button>
-          </div>
-          <div class="hud-footer">
-            <button type="button" id="btn-toggle-stale" class="hud-btn btn-stale">Freeze Times (Simulate Stale)</button>
-            <button type="button" id="btn-resume-live" class="hud-btn btn-resume">Resume Live Monitor</button>
-          </div>
-        </div>
-      </div>
 
       <!-- Dashboard/Uptime Component Card -->
       <div class="dashboard-card">
@@ -134,159 +111,9 @@
         </div>
       </section>
 
-      <!-- Admin Dashboard Section -->
-      <section id="admin-dashboard" class="dashboard-section" style="display: none;">
-        <div class="dashboard-header">
-          <h2 class="dashboard-title">Admin API Usage Dashboard</h2>
-          <span class="dashboard-subtitle">Direct API Requests Only (Excludes Frontend)</span>
-        </div>
 
-        <!-- Unique IPs Metric Cards -->
-        <div class="metrics-grid">
-          <div class="metric-card">
-            <span class="metric-label">Active Users (24h)</span>
-            <span id="metric-ips-24h" class="metric-value">0</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-label">Active Users (7d)</span>
-            <span id="metric-ips-7d" class="metric-value">0</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-label">Active Users (30d)</span>
-            <span id="metric-ips-30d" class="metric-value">0</span>
-          </div>
-        </div>
-
-        <!-- Charts Grid -->
-        <div class="dashboard-grid">
-          <div class="dashboard-card main-chart-card">
-            <h3>Request Volume (Last 30 Days)</h3>
-            <div class="chart-container">
-              <canvas id="chart-daily-volume"></canvas>
-            </div>
-          </div>
-          <div class="dashboard-card pie-chart-card">
-            <h3>Endpoint Distribution</h3>
-            <div class="chart-container">
-              <canvas id="chart-endpoints"></canvas>
-            </div>
-          </div>
-          <div class="dashboard-card pie-chart-card">
-            <h3>Status Codes</h3>
-            <div class="chart-container">
-              <canvas id="chart-status-codes"></canvas>
-            </div>
-          </div>
-        </div>
-
-        <!-- Top Consumers Table -->
-        <div class="dashboard-card table-card" style="margin-top: 1.5rem;">
-          <h3>Top 10 API Consumers</h3>
-          <div class="table-container">
-            <table class="dashboard-table">
-              <thead>
-                <tr>
-                  <th>Client Hash (Short)</th>
-                  <th>Total Requests</th>
-                </tr>
-              </thead>
-              <tbody id="top-consumers-body">
-                <!-- Dynamically populated -->
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- Telemetry Stats Section -->
-        <div class="dashboard-header" style="margin-top: 2rem; border-top: 1px dashed #312e81; padding-top: 2rem;">
-          <h2 class="dashboard-title">Ship Tracker Telemetry</h2>
-          <span class="dashboard-subtitle">Anonymous usage statistics from active installations</span>
-        </div>
-
-        <div class="metrics-grid">
-          <div class="metric-card">
-            <span class="metric-label">Total Installs</span>
-            <span id="metric-telemetry-total" class="metric-value">0</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-label">Active Installs (7d)</span>
-            <span id="metric-telemetry-active-7d" class="metric-value">0</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-label">Avg Watchlist Size</span>
-            <span id="metric-telemetry-avg-watchlist" class="metric-value">0</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-label">Avg Map Timeout</span>
-            <span id="metric-telemetry-avg-timeout" class="metric-value">0m</span>
-          </div>
-        </div>
-
-        <div class="dashboard-grid">
-          <div class="dashboard-card pie-chart-card">
-            <h3>App Version Distribution</h3>
-            <div class="chart-container">
-              <canvas id="chart-telemetry-versions"></canvas>
-            </div>
-          </div>
-          <div class="dashboard-card pie-chart-card">
-            <h3>Adoption Rates</h3>
-            <div class="chart-container">
-              <canvas id="chart-telemetry-adoption"></canvas>
-            </div>
-          </div>
-          <div class="dashboard-card pie-chart-card">
-            <h3>Client User-Agents</h3>
-            <div class="chart-container">
-              <canvas id="chart-user-agents"></canvas>
-            </div>
-          </div>
-        </div>
-
-        <!-- Telemetry Client List Table -->
-        <div class="dashboard-card table-card" style="margin-top: 1.5rem;">
-          <h3>Active Installations</h3>
-          <div class="table-container">
-            <table class="dashboard-table">
-              <thead>
-                <tr>
-                  <th>UUID</th>
-                  <th>Version</th>
-                  <th>IP Hash (Short)</th>
-                  <th>Map Entities</th>
-                  <th>Class B</th>
-                  <th>Clear Startup</th>
-                  <th>Map Timeout</th>
-                  <th>API Monitoring</th>
-                  <th>Watchlist Ships</th>
-                  <th>Last Check-In</th>
-                </tr>
-              </thead>
-              <tbody id="telemetry-clients-body">
-                <!-- Dynamically populated -->
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
 
     </main>
-
-    <!-- Console Log Drawer -->
-    <section id="console-drawer" class="console-drawer" style="display: none;">
-      <button id="console-toggle" class="console-toggle">
-        <span class="console-title-wrapper">
-          <span class="terminal-icon">📟</span>
-          <span>Connection Logs</span>
-        </span>
-        <span id="toggle-indicator" class="toggle-indicator">Show</span>
-      </button>
-      <div id="console-body" class="console-body collapsed">
-        <div id="log-terminal" class="log-terminal">
-          <div class="log-entry system">-- Click show to initialize logs stream --</div>
-        </div>
-      </div>
-    </section>
 
     <footer class="app-footer" id="app-footer">
       <p>AISStream Uptime Monitor &bull; <a

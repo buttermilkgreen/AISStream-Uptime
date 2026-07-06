@@ -124,332 +124,10 @@ function replaceDurationInMessage(msg, newDurationText) {
 // Config mapping for status states
 let isAdminVerified = false;
 
-// Admin Dashboard chart instances & fetching logic
-let chartVolume = null;
-let chartEndpoints = null;
-let chartStatusCodes = null;
-let chartTelemetryVersions = null;
-let chartTelemetryAdoption = null;
-let chartUserAgents = null;
-
-async function fetchAndRenderDashboard() {
-  const dashboardEl = document.getElementById('admin-dashboard');
-  if (!dashboardEl) return;
-
-  if (!isAdminVerified) {
-    dashboardEl.style.display = 'none';
-    return;
-  }
-
-  const key = localStorage.getItem('adminApiKey');
-  if (!key) return;
-
-  try {
-    const res = await fetch('/api/v1/admin/api-usage', {
-      headers: {
-        'Authorization': `Bearer ${key}`
-      }
-    });
-    if (!res.ok) {
-      dashboardEl.style.display = 'none';
-      return;
-    }
-    const data = await res.json();
-    dashboardEl.style.display = 'block';
-
-    // 1. Render Metrics
-    document.getElementById('metric-ips-24h').textContent = data.uniqueIPs.last24h;
-    document.getElementById('metric-ips-7d').textContent = data.uniqueIPs.last7d;
-    document.getElementById('metric-ips-30d').textContent = data.uniqueIPs.last30d;
-
-    // 2. Render Top Consumers Table
-    const tbody = document.getElementById('top-consumers-body');
-    tbody.innerHTML = '';
-    if (data.topConsumers && data.topConsumers.length > 0) {
-      data.topConsumers.forEach(consumer => {
-        const tr = document.createElement('tr');
-        
-        const tdIp = document.createElement('td');
-        tdIp.textContent = consumer.ip;
-        
-        const tdCount = document.createElement('td');
-        tdCount.textContent = consumer.count;
-        
-        tr.appendChild(tdIp);
-        tr.appendChild(tdCount);
-        tbody.appendChild(tr);
-      });
-    } else {
-      tbody.innerHTML = '<tr><td colspan="2" style="text-align: center; color: var(--text-muted); padding: 1rem;">No usage recorded</td></tr>';
-    }
-
-    // 3. Render Charts
-    if (typeof Chart === 'undefined') {
-      console.warn("Chart.js is not loaded yet.");
-      return;
-    }
-
-    // Destroy old charts if they exist
-    if (chartVolume) chartVolume.destroy();
-    if (chartEndpoints) chartEndpoints.destroy();
-    if (chartStatusCodes) chartStatusCodes.destroy();
-
-    const fontConfig = {
-      family: "'Outfit', sans-serif",
-      size: 11
-    };
-
-    // Daily Volume Chart
-    const volCtx = document.getElementById('chart-daily-volume').getContext('2d');
-    const volLabels = data.dailyVolume.map(v => v.date);
-    const volCounts = data.dailyVolume.map(v => v.count);
-    chartVolume = new Chart(volCtx, {
-      type: 'bar',
-      data: {
-        labels: volLabels.length ? volLabels : ['No Data'],
-        datasets: [{
-          label: 'Requests',
-          data: volCounts.length ? volCounts : [0],
-          backgroundColor: '#3b82f6',
-          borderRadius: 4
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: { titleFont: fontConfig, bodyFont: fontConfig }
-        },
-        scales: {
-          x: { grid: { display: false }, ticks: { font: fontConfig } },
-          y: { beginAtZero: true, ticks: { precision: 0, font: fontConfig } }
-        }
-      }
-    });
-
-    // Endpoints Chart
-    const epCtx = document.getElementById('chart-endpoints').getContext('2d');
-    const epLabels = data.endpoints.map(e => e.endpoint);
-    const epCounts = data.endpoints.map(e => e.count);
-    chartEndpoints = new Chart(epCtx, {
-      type: 'doughnut',
-      data: {
-        labels: epLabels.length ? epLabels : ['No Data'],
-        datasets: [{
-          data: epCounts.length ? epCounts : [0],
-          backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#64748b']
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { position: 'bottom', labels: { font: fontConfig, boxWidth: 12 } }
-        }
-      }
-    });
-
-    // Status Codes Chart
-    const scCtx = document.getElementById('chart-status-codes').getContext('2d');
-    const scLabels = data.statusCodes.map(s => s.status_code);
-    const scCounts = data.statusCodes.map(s => s.count);
-    chartStatusCodes = new Chart(scCtx, {
-      type: 'doughnut',
-      data: {
-        labels: scLabels.length ? scLabels.map(String) : ['No Data'],
-        datasets: [{
-          data: scCounts.length ? scCounts : [0],
-          backgroundColor: ['#10b981', '#ef4444', '#f59e0b', '#3b82f6', '#64748b']
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { position: 'bottom', labels: { font: fontConfig, boxWidth: 12 } }
-        }
-      }
-    });
-
-    // 4. Fetch and Render Telemetry Data
-    const telemetryRes = await fetch('/api/v1/admin/telemetry', {
-      headers: {
-        'Authorization': `Bearer ${key}`
-      }
-    });
-    if (telemetryRes.ok) {
-      const telData = await telemetryRes.json();
-      
-      // Update Telemetry metrics
-      document.getElementById('metric-telemetry-total').textContent = telData.totalInstalls;
-      document.getElementById('metric-telemetry-active-7d').textContent = telData.active7d;
-      document.getElementById('metric-telemetry-avg-watchlist').textContent = Math.round(telData.watchlist.avg * 10) / 10;
-      document.getElementById('metric-telemetry-avg-timeout').textContent = Math.round(telData.mapTimeout.avg) + 'm';
-
-      // Render Telemetry Client List Table
-      const telBody = document.getElementById('telemetry-clients-body');
-      telBody.innerHTML = '';
-      if (telData.installsList && telData.installsList.length > 0) {
-        telData.installsList.forEach(client => {
-          const tr = document.createElement('tr');
-          
-          const tdUuid = document.createElement('td');
-          tdUuid.textContent = client.short_uuid;
-          tdUuid.title = client.uuid;
-          
-          const tdVer = document.createElement('td');
-          tdVer.textContent = client.version;
-          
-          const tdIp = document.createElement('td');
-          tdIp.textContent = client.short_ip;
-          tdIp.title = client.ip_hash;
-          
-          const tdMap = document.createElement('td');
-          tdMap.textContent = client.enable_map_entities ? 'Enabled' : 'Disabled';
-          
-          const tdClassB = document.createElement('td');
-          tdClassB.textContent = client.include_class_b ? 'Enabled' : 'Disabled';
-
-          const tdClear = document.createElement('td');
-          tdClear.textContent = client.clear_map_on_startup ? 'Enabled' : 'Disabled';
-
-          const tdTimeout = document.createElement('td');
-          tdTimeout.textContent = client.map_timeout_minutes + 'm';
-
-          const tdApi = document.createElement('td');
-          tdApi.textContent = client.enable_api_monitoring ? 'Enabled' : 'Disabled';
-          
-          const tdWatch = document.createElement('td');
-          tdWatch.textContent = client.watchlist_count;
-          
-          const tdLast = document.createElement('td');
-          tdLast.textContent = new Date(client.last_seen).toLocaleString();
-          
-          tr.appendChild(tdUuid);
-          tr.appendChild(tdVer);
-          tr.appendChild(tdIp);
-          tr.appendChild(tdMap);
-          tr.appendChild(tdClassB);
-          tr.appendChild(tdClear);
-          tr.appendChild(tdTimeout);
-          tr.appendChild(tdApi);
-          tr.appendChild(tdWatch);
-          tr.appendChild(tdLast);
-          
-          telBody.appendChild(tr);
-        });
-      } else {
-        telBody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 1rem;">No installations registered</td></tr>';
-      }
-
-      // Destroy old telemetry charts if they exist
-      if (chartTelemetryVersions) chartTelemetryVersions.destroy();
-      if (chartTelemetryAdoption) chartTelemetryAdoption.destroy();
-      if (chartUserAgents) chartUserAgents.destroy();
-
-      // App Versions Chart
-      const tvCtx = document.getElementById('chart-telemetry-versions').getContext('2d');
-      const tvLabels = telData.versions.map(v => v.version);
-      const tvCounts = telData.versions.map(v => v.count);
-      chartTelemetryVersions = new Chart(tvCtx, {
-        type: 'doughnut',
-        data: {
-          labels: tvLabels.length ? tvLabels : ['No Data'],
-          datasets: [{
-            data: tvCounts.length ? tvCounts : [0],
-            backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#64748b']
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { position: 'bottom', labels: { font: fontConfig, boxWidth: 12 } }
-          }
-        }
-      });
-
-      // Adoption Rates Chart
-      const taCtx = document.getElementById('chart-telemetry-adoption').getContext('2d');
-      const total = telData.totalInstalls || 1;
-      const getAdoptionCount = (list, keyVal) => {
-        const item = list.find(x => Object.values(x)[0] === keyVal);
-        return item ? item.count : 0;
-      };
-      
-      const mapAdoption = Math.round((getAdoptionCount(telData.mapEntities, 1) / total) * 100);
-      const classBAdoption = Math.round((getAdoptionCount(telData.classB, 1) / total) * 100);
-      const apiMonitorAdoption = Math.round((getAdoptionCount(telData.apiMonitoring, 1) / total) * 100);
-      const clearStartupAdoption = Math.round((getAdoptionCount(telData.clearOnStartup, 1) / total) * 100);
-
-      chartTelemetryAdoption = new Chart(taCtx, {
-        type: 'bar',
-        data: {
-          labels: ['Map Entities', 'Include Class B', 'API Monitor', 'Clear Startup'],
-          datasets: [{
-            label: 'Adoption Rate %',
-            data: [mapAdoption, classBAdoption, apiMonitorAdoption, clearStartupAdoption],
-            backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ec4899'],
-            borderRadius: 4
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false },
-            tooltip: { titleFont: fontConfig, bodyFont: fontConfig }
-          },
-          scales: {
-            x: { grid: { display: false }, ticks: { font: fontConfig } },
-            y: { beginAtZero: true, max: 100, ticks: { font: fontConfig, callback: value => value + '%' } }
-          }
-        }
-      });
-
-      // User Agents Chart
-      const uaCtx = document.getElementById('chart-user-agents').getContext('2d');
-      const uaGroups = {};
-      telData.userAgents.forEach(item => {
-        const ua = item.user_agent.toLowerCase();
-        let name = 'Other';
-        if (ua.includes('uptime-kuma') || ua.includes('uptimekuma')) {
-          name = 'Uptime Kuma';
-        } else if (ua.includes('ais-ship-tracker')) {
-          name = 'Ship Tracker App';
-        } else if (ua.includes('curl') || ua.includes('wget')) {
-          name = 'curl/commandline';
-        } else if (ua.includes('mozilla') || ua.includes('chrome') || ua.includes('safari') || ua.includes('firefox')) {
-          name = 'Web Browser';
-        }
-        uaGroups[name] = (uaGroups[name] || 0) + item.count;
-      });
-
-      const uaLabels = Object.keys(uaGroups);
-      const uaCounts = Object.values(uaGroups);
-
-      chartUserAgents = new Chart(uaCtx, {
-        type: 'doughnut',
-        data: {
-          labels: uaLabels.length ? uaLabels : ['No Data'],
-          datasets: [{
-            data: uaCounts.length ? uaCounts : [0],
-            backgroundColor: ['#6366f1', '#14b8a6', '#f43f5e', '#eab308', '#64748b']
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { position: 'bottom', labels: { font: fontConfig, boxWidth: 12 } }
-          }
-        }
-      });
-    }
-
-  } catch (e) {
-    console.error('Error fetching API usage data:', e);
+function updateAdminLinkVisibility() {
+  const adminLinkEl = document.getElementById('btn-admin-link');
+  if (adminLinkEl) {
+    adminLinkEl.style.display = isAdminVerified ? 'inline-block' : 'none';
   }
 }
 
@@ -628,13 +306,6 @@ const lastCheckedEl = document.getElementById('last-checked');
 const heartbeatContainer = document.getElementById('heartbeat-container');
 const historyContainer = document.getElementById('history-container');
 
-const consoleToggle = document.getElementById('console-toggle');
-const consoleBody = document.getElementById('console-body');
-const toggleIndicator = document.getElementById('toggle-indicator');
-const logTerminal = document.getElementById('log-terminal');
-
-let logsInterval = null;
-let isLogsOpen = false;
 
 /**
  * Update the UI based on the returned or calculated state.
@@ -829,10 +500,16 @@ function renderIncidentHistory(incidents) {
   );
 
   historyContainer.innerHTML = '';
+  if (window.isHistoryExpanded) {
+    historyContainer.classList.add('expanded');
+  } else {
+    historyContainer.classList.remove('expanded');
+  }
 
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const today = new Date();
   const targetMonths = [];
+  let totalIncidentsCount = 0;
 
   // Initialize the list for the last 4 calendar months (only from June 2026 onwards)
   for (let i = 0; i < 4; i++) {
@@ -849,8 +526,6 @@ function renderIncidentHistory(incidents) {
     });
   }
 
-
-
   // Populate incidents into target months
   incidents.forEach(inc => {
     const start = new Date(inc.start_time);
@@ -858,6 +533,7 @@ function renderIncidentHistory(incidents) {
 
     const match = targetMonths.find(m => m.monthIndex === start.getMonth() && m.year === start.getFullYear());
     if (match) {
+      totalIncidentsCount++;
       const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       const dayNum = String(start.getDate()).padStart(2, '0');
       const dayName = days[start.getDay()];
@@ -949,9 +625,12 @@ function renderIncidentHistory(incidents) {
     }
   });
 
+  let globalIdx = 0;
+
   targetMonths.forEach(item => {
     const monthBlock = document.createElement('div');
-    monthBlock.className = 'history-month-block';
+    const isMonthBlockExtra = globalIdx >= 2;
+    monthBlock.className = `history-month-block${isMonthBlockExtra ? ' history-extra-item' : ''}`;
 
     if (item.incidents.length === 0) {
       monthBlock.innerHTML = `
@@ -968,6 +647,9 @@ function renderIncidentHistory(incidents) {
     } else {
       let incidentsHtml = `<h3 class="month-header">${item.monthName}</h3>`;
       item.incidents.forEach(inc => {
+        globalIdx++;
+        const isExtra = globalIdx > 2;
+        const extraClass = isExtra ? ' history-extra-item' : '';
         const rowClass = `incident-row ${inc.outageType.replace(/\s+/g, '-')} ${inc.isOngoing ? 'ongoing' : ''}`;
 
         let timelineHtml = "";
@@ -1045,7 +727,7 @@ function renderIncidentHistory(incidents) {
         }
 
         incidentsHtml += `
-          <div class="incident-row-container">
+          <div class="incident-row-container${extraClass}">
             <div class="${rowClass}">
               <div class="incident-date">
                 <div class="date-row">
@@ -1073,6 +755,9 @@ function renderIncidentHistory(incidents) {
                 
                 <!-- History Votes Display -->
                 ${(() => {
+                  if (inc.votesUp === 0 && inc.votesDown === 0) {
+                    return '';
+                  }
                   const activeVoteUp = document.getElementById('vote-up-btn')?.classList.contains('active');
                   const activeVoteDown = document.getElementById('vote-down-btn')?.classList.contains('active');
                   const currentUserVote = activeVoteUp ? 'up' : (activeVoteDown ? 'down' : null);
@@ -1115,6 +800,20 @@ function renderIncidentHistory(incidents) {
             ${timelineHtml}
           </div>
         `;
+
+        if (globalIdx === 2 && totalIncidentsCount > 2) {
+          const btnText = window.isHistoryExpanded ? 'Show Less' : 'Show More';
+          incidentsHtml += `
+            <div class="history-expand-wrapper">
+              <button id="btn-history-toggle" class="btn-history-toggle" onclick="toggleHistoryExpansion()">
+                <span>${btnText}</span>
+                <svg class="icon-chevron" viewBox="0 0 20 20" fill="currentColor" style="width: 20px; height: 20px; transition: transform 0.2s;">
+                  <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+              </button>
+            </div>
+          `;
+        }
       });
       monthBlock.innerHTML = incidentsHtml;
     }
@@ -1122,6 +821,27 @@ function renderIncidentHistory(incidents) {
     historyContainer.appendChild(monthBlock);
   });
 }
+
+window.isHistoryExpanded = false;
+
+window.toggleHistoryExpansion = function () {
+  window.isHistoryExpanded = !window.isHistoryExpanded;
+  const container = document.getElementById('history-container');
+  const btn = document.getElementById('btn-history-toggle');
+  if (container) {
+    if (window.isHistoryExpanded) {
+      container.classList.add('expanded');
+      if (btn) {
+        btn.querySelector('span').textContent = 'Show Less';
+      }
+    } else {
+      container.classList.remove('expanded');
+      if (btn) {
+        btn.querySelector('span').textContent = 'Show More';
+      }
+    }
+  }
+};
 
 // Global UI interactive handlers
 window.toggleTimeline = function (id) {
@@ -1193,16 +913,7 @@ async function fetchStatus() {
     renderHeartbeat(data.history);
 
     // Dev HUD visibility
-    const devHud = document.getElementById('developer-hud');
-    const simBadge = document.getElementById('simulation-badge');
-    const consoleDrawer = document.getElementById('console-drawer');
-    const toggleStaleBtn = document.getElementById('btn-toggle-stale');
     if (data.devMode) {
-      if (devHud) devHud.style.display = 'block';
-      if (consoleDrawer) consoleDrawer.style.display = 'block';
-      if (simBadge) {
-        simBadge.style.display = data.simulated ? 'inline-block' : 'none';
-      }
       if (statusBanner) {
         if (data.simulated) {
           statusBanner.classList.add('simulation-active');
@@ -1210,41 +921,7 @@ async function fetchStatus() {
           statusBanner.classList.remove('simulation-active');
         }
       }
-      if (toggleStaleBtn) {
-        if (data.simulated) {
-          toggleStaleBtn.disabled = false;
-          toggleStaleBtn.style.opacity = '1';
-          toggleStaleBtn.style.cursor = 'pointer';
-          if (data.simulatedStale) {
-            toggleStaleBtn.classList.add('active');
-            toggleStaleBtn.textContent = 'Unfreeze Times (Resume Updates)';
-          } else {
-            toggleStaleBtn.classList.remove('active');
-            toggleStaleBtn.textContent = 'Freeze Times (Simulate Stale)';
-          }
-        } else {
-          toggleStaleBtn.disabled = true;
-          toggleStaleBtn.style.opacity = '0.5';
-          toggleStaleBtn.style.cursor = 'not-allowed';
-          toggleStaleBtn.classList.remove('active');
-          toggleStaleBtn.textContent = 'Freeze Times (Simulate Stale)';
-        }
-      }
     } else {
-      if (devHud) devHud.style.display = 'none';
-      if (consoleDrawer) {
-        consoleDrawer.style.display = 'none';
-        // Clear log intervals if active
-        if (logsInterval) {
-          clearInterval(logsInterval);
-          logsInterval = null;
-        }
-        isLogsOpen = false;
-        const consoleBody = document.getElementById('console-body');
-        if (consoleBody) consoleBody.classList.add('collapsed');
-        const toggleIndicator = document.getElementById('toggle-indicator');
-        if (toggleIndicator) toggleIndicator.textContent = 'Show';
-      }
       if (statusBanner) statusBanner.classList.remove('simulation-active');
     }
   } catch (error) {
@@ -1258,70 +935,9 @@ async function fetchStatus() {
   }
 }
 
-/**
- * Fetch connection logs from backend and render inside terminal
- */
-async function fetchLogs() {
-  try {
-    const response = await fetch('/api/v1/logs');
-    if (!response.ok) throw new Error('Failed to fetch logs');
-    const logs = await response.json();
-
-    if (logs.length === 0) {
-      logTerminal.innerHTML = '<div class="log-entry system"><span class="log-msg">-- No connection events logged yet --</span></div>';
-      return;
-    }
-
-    logTerminal.innerHTML = '';
-    logs.forEach(log => {
-      const entry = document.createElement('div');
-      entry.className = `log-entry ${log.type || 'info'}`;
-
-      const timeSpan = document.createElement('span');
-      timeSpan.className = 'log-time';
-      timeSpan.textContent = new Date(log.timestamp).toLocaleTimeString();
-
-      const msgSpan = document.createElement('span');
-      msgSpan.className = 'log-msg';
-      msgSpan.textContent = log.message;
-
-      entry.appendChild(timeSpan);
-      entry.appendChild(msgSpan);
-      logTerminal.appendChild(entry);
-    });
-
-    logTerminal.scrollTop = logTerminal.scrollHeight;
-  } catch (err) {
-    console.error('Error loading logs:', err);
-    logTerminal.innerHTML = '<div class="log-entry error"><span class="log-msg">Failed to connect to backend logs stream.</span></div>';
-  }
-}
-
-// Collapsible drawer toggle handling
-consoleToggle.addEventListener('click', () => {
-  isLogsOpen = !isLogsOpen;
-
-  if (isLogsOpen) {
-    consoleBody.classList.remove('collapsed');
-    toggleIndicator.textContent = 'Hide';
-    fetchLogs(); // Immediate fetch
-    logsInterval = setInterval(fetchLogs, 2000); // Poll every 2 seconds
-  } else {
-    consoleBody.classList.add('collapsed');
-    toggleIndicator.textContent = 'Show';
-    if (logsInterval) {
-      clearInterval(logsInterval);
-      logsInterval = null;
-    }
-  }
-});
 
 // Setup Developer HUD event listeners
 document.addEventListener('DOMContentLoaded', () => {
-  const simButtons = document.querySelectorAll('#developer-hud .hud-btn[data-state]');
-  const payloadField = document.getElementById('sim-error-payload');
-  const resumeBtn = document.getElementById('btn-resume-live');
-  const toggleStaleBtn = document.getElementById('btn-toggle-stale');
 
   // Admin verification helper
   async function verifyAdminKey(token) {
@@ -1344,7 +960,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (isValid) {
         isAdminVerified = true;
         fetchIncidentHistory(); // re-render history with edit options visible
-        fetchAndRenderDashboard(); // load dashboard
+        updateAdminLinkVisibility(); // show/hide admin header link
       } else {
         localStorage.removeItem('adminApiKey');
       }
@@ -1394,7 +1010,7 @@ document.addEventListener('DOMContentLoaded', () => {
           isAdminVerified = true;
           adminKeyModal.style.display = 'none';
           fetchIncidentHistory();
-          fetchAndRenderDashboard();
+          updateAdminLinkVisibility();
         } else {
           alert("Invalid Admin Key. Access denied.");
         }
@@ -1411,7 +1027,7 @@ document.addEventListener('DOMContentLoaded', () => {
       adminKeyInput.value = '';
       adminKeyModal.style.display = 'none';
       fetchIncidentHistory();
-      fetchAndRenderDashboard();
+      updateAdminLinkVisibility();
     });
   }
 
@@ -1621,92 +1237,6 @@ document.addEventListener('DOMContentLoaded', () => {
     voteDownBtn.addEventListener('click', () => castVote('down'));
   }
 
-  simButtons.forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const state = btn.getAttribute('data-state');
-      const rawVal = payloadField.value.trim();
-      let payload = { state };
-
-      if (rawVal) {
-        try {
-          // Attempt to parse text as JSON
-          const parsed = JSON.parse(rawVal);
-          if (parsed && typeof parsed === 'object') {
-            payload.message = parsed.message || `Simulated ${state}`;
-            payload.raw = parsed.raw || parsed;
-          } else {
-            payload.message = rawVal;
-          }
-        } catch (e) {
-          // If not JSON, send it as a raw string message
-          payload.message = rawVal;
-        }
-      }
-
-      try {
-        const res = await fetch('/api/v1/test/simulate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        if (res.ok) {
-          // Immediate update to show user the simulation result
-          await fetchStatus();
-          await fetchIncidentHistory();
-          if (isLogsOpen) await fetchLogs();
-        } else {
-          const err = await res.json();
-          alert(`Simulation failed: ${err.error}`);
-        }
-      } catch (err) {
-        console.error("Simulation request error:", err);
-      }
-    });
-  });
-
-  if (resumeBtn) {
-    resumeBtn.addEventListener('click', async () => {
-      try {
-        const res = await fetch('/api/v1/test/resume', {
-          method: 'POST'
-        });
-        if (res.ok) {
-          payloadField.value = ''; // clear payload helper
-          await fetchStatus();
-          await fetchIncidentHistory();
-          if (isLogsOpen) await fetchLogs();
-        } else {
-          const err = await res.json();
-          alert(`Failed to resume live monitor: ${err.error}`);
-        }
-      } catch (err) {
-        console.error("Resume request error:", err);
-      }
-    });
-  }
-
-  if (toggleStaleBtn) {
-    toggleStaleBtn.addEventListener('click', async () => {
-      const isStale = toggleStaleBtn.classList.contains('active');
-      try {
-        const res = await fetch('/api/v1/test/stale', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stale: !isStale })
-        });
-        if (res.ok) {
-          await fetchStatus();
-          if (isLogsOpen) await fetchLogs();
-        } else {
-          const err = await res.json();
-          alert(`Failed to set stale simulation: ${err.error}`);
-        }
-      } catch (err) {
-        console.error("Stale request error:", err);
-      }
-    });
-  }
 });
 
 // Clear active heartbeat tooltips when clicking anywhere else

@@ -30,13 +30,13 @@ The backend is built in pure Node.js without heavy frameworks (e.g., Express) to
 * **Static File Server**: Delivers the static assets located in the `/public` folder.
 * **HTTP API Endpoints**:
   * `GET /api/v1/status`: Returns current system status state, last checked timestamps, rolling 30-minute heartbeat history, `devMode`, `simulated`, plus an `activeIncident` object (containing `id`, `start_time`, `admin_notes`, `admin_link`, `admin_link_text`) if there is currently an ongoing outage. Supports query parameter `?simple=true` to return only live connection metadata instantly.
-  * `POST /api/v1/status`: Receives anonymous client telemetry (UUID, app version, configuration settings, and watchlist count) from the ship tracker app, updates/replaces the client's telemetry record in the database, and returns the standard simplified status JSON response (equivalent to `GET /api/v1/status?simple=true`).
+  * `POST /api/v1/status`: Receives anonymous client telemetry (UUID, app version, configuration settings, and watchlist count) from the ship tracker app, updates/replaces the client's telemetry record (tracking the initial creation date via `created_at` and preserving it on updates) in the database, and returns the standard simplified status JSON response (equivalent to `GET /api/v1/status?simple=true`). No client IP hashes are stored.
   * `GET /api/v1/health`: A lightweight check returning `{"status":"ok"}` instantly without database queries or caching.
   * `GET /api/v1/logs` (DEV mode only): Returns the 50 most recent console log messages stored in memory. Returns `403 Forbidden` in production.
   * `GET /api/v1/incidents`: Query historical incidents and active outages ordered reverse-chronologically (`start_time DESC`).
   * `POST /api/v1/admin/verify`: Validate if a provided API key matches the configured `ADMIN_API_KEY`. Used to verify credentials before granting client-side access. Includes IP-lockout protection.
-  * `GET /api/v1/admin/api-usage`: Retrieve aggregated API usage statistics (unique client hashes, daily volume, endpoints, status codes, and top consumers) for direct API clients. Client IPs are cryptographically hashed using SHA-256 in-memory before querying or logging. Authorized via `Authorization: Bearer <ADMIN_API_KEY>`. Includes IP-lockout protection.
-  * `GET /api/v1/admin/telemetry`: Retrieve aggregated ship tracker telemetry (total installs, 7d active, version distribution, adoption rates, client user-agents, and a list of active installations). IPs and UUIDs are shortened/masked in the response to protect anonymity. Authorized via `Authorization: Bearer <ADMIN_API_KEY>`. Includes IP-lockout protection.
+  * `GET /api/v1/admin/api-usage`: Retrieve aggregated API usage statistics (unique client hashes for 24h/7d/30d/60d/90d, daily volume, endpoints, and all consumers with User-Agents) for direct API clients. Client IPs are cryptographically hashed using SHA-256 in-memory before querying or logging. Authorized via `Authorization: Bearer <ADMIN_API_KEY>`. Includes IP-lockout protection.
+  * `GET /api/v1/admin/telemetry`: Retrieve aggregated ship tracker telemetry (total installs, 30d/60d/90d active installs, new installs this week & last 30d, version distribution, adoption rates, client user-agents, and a list of active installations). IPs are not tracked, and UUIDs are shortened in the response to protect anonymity. Authorized via `Authorization: Bearer <ADMIN_API_KEY>`. Includes IP-lockout protection.
   * `PATCH /api/v1/incidents/:id`: Manually update an incident's fields such as `start_time`, `outage_type`, `admin_notes`, `admin_link`, and `admin_link_text` (authorized via `Authorization: Bearer <ADMIN_API_KEY>`). Includes IP-lockout protection for invalid attempts.
   * `DELETE /api/v1/incidents/:id`: Remove an incident from the database (authorized via `Authorization: Bearer <ADMIN_API_KEY>`). If it was the active ongoing incident, automatically rolls back and marks the next most recent incident as ongoing, resuming status and watchdog timers. Includes IP-lockout protection.
   * `GET /api/v1/votes`: Query consensus vote counts (Agree / Disagree) for a given status state, along with the caller's active vote (queried via hashed IP).
@@ -197,15 +197,15 @@ The frontend is a single-page app built using semantic HTML5, Vanilla JavaScript
   * Includes a **Raw Response Inspector**: Clicking the `</>` SVG icon expands a formatted dark code container containing the raw JSON object. The text wraps naturally (`white-space: pre-wrap` and `word-break: break-all`) to accommodate smaller screen viewports, allowing developers to copy the full string to their clipboard.
 * **Rate Limit Toast Notification**: If the client exceeds the local API rate limit, the global fetch interceptor catches the `HTTP 429` status code and displays a non-intrusive, premium floating toast notification warning at the top of the viewport, which automatically auto-dismisses after 5 seconds.
 * **Developer Simulation HUD**: Appears only in development environments (`NODE_ENV=DEV` or `DEV=true`). Allows triggering simulated outages, inputting simulated raw error text, and reverting back to live tracking.
-* **Admin API Usage Dashboard**: Visible at the bottom of the main layout only when verified as administrator. It shows:
-  * **Metric Cards**: Active user counts (unique IP hashes) over the last 24 hours, 7 days, and 30 days.
-  * **Charts**: Visualizations of Daily Request Volume (bar chart), Endpoint Distribution (doughnut chart), and Status Code Distribution (doughnut chart).
-  * **Top Consumers**: Data table summarizing the 10 most active clients, showing shortened 8-character IP hashes instead of plain IP addresses to ensure anonymity.
-  * **Ship Tracker Telemetry Panel**:
-    * **Metric Cards**: Total registered installations, 7-day active installations, average watchlist size, and average mapping timeout configuration.
-    * **Charts**: App version distribution (doughnut chart), setting adoption rates (bar chart comparing map entities, class B tracking, API monitor, and clear startup config adoption), and client User-Agent distribution (e.g. Uptime Kuma vs. Ship Tracker App vs. Web Browser).
-    * **Active Installations Table**: Details all active tracker clients, showing UUID and IP hashes masked to their first 8 characters (e.g., `eff8e7ca...`), alongside app version, configuration options, and check-in times.
-  * **Responsive Grid**: Flexes to full-width stacked list on mobile devices and 2-column grid layout on larger screens, keeping charts readable and aligned.
+* **Admin Dashboard Page**: Located at `/admin` (or `/admin.html`). Protected by a secure passcode gate (if not logged in) or showing the full telemetry dashboard. It features:
+  * **API Usage Section**:
+    * **Metric Cards**: Active user counts (unique IP hashes) over the last 24 hours, 7 days, 30 days, 60 days, and 90 days.
+    * **Charts**: Daily Request Volume (bar chart), Endpoint Distribution (doughnut chart), and Client User-Agent Distribution (doughnut chart).
+    * **API Consumers**: Paginated table (5 rows per page) showing all API consumers with their User-Agent. Includes a checkbox filter to hide ship tracker app requests.
+  * **Ship Tracker Telemetry Section**:
+    * **Metric Cards**: Total installs, active installs (30d, 60d, 90d), new installs this week, and new installs in the last 30 days.
+    * **Charts**: App version distribution (doughnut chart) and adoption rates (bar chart comparing settings configurations).
+    * **Active Installations Table**: Masked client UUIDs (no IP addresses are stored or shown), configuration parameters, and check-in dates. Supports interactive client-side column sorting and a "Show More" expansion button.
 
 ---
 

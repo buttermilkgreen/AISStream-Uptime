@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Admin dashboard for AISStream status monitor telemetry and API usage.">
+  <title>Admin Dashboard - AISStream Status</title>
+
+  <!-- Premium Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="style.css?v=2">
+</head>
+
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-area">
+        <h1>AIS Stream Admin</h1>
+        <p class="logo-subtitle">System Telemetry & API Logs</p>
+      </div>
+      <div class="header-buttons">
+        <a href="/" class="btn" style="background: #1e293b; color: white;">&larr; Uptime Monitor</a>
+        <button id="btn-logout" class="btn" style="background: #ef4444; color: white; display: none;">Logout</button>
+      </div>
+    </header>
+
+    <main style="display: flex; flex-direction: column; gap: 1.75rem;">
+      <!-- Authentication Gate -->
+      <div id="auth-gate" class="dashboard-card" style="max-width: 480px; margin: 4rem auto; padding: 2rem; border: 1px solid #312e81;">
+        <h2 style="text-align: center; margin-bottom: 0.5rem; font-weight: 800;">Admin Verification</h2>
+        <p style="text-align: center; color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">Enter your Admin API Key to access telemetry data.</p>
+        <div class="form-group" style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <input type="password" id="admin-pass-key" placeholder="Enter ADMIN_API_KEY..."
+            style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.85rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem; text-align: center;">
+          <button id="btn-submit-auth" class="btn" style="background: #2563eb; color: white; padding: 0.85rem; font-weight: 600; width: 100%;">Verify & Authorize</button>
+        </div>
+      </div>
+
+      <!-- Dashboard View (Hidden by default) -->
+      <div id="dashboard-content" style="display: none; display: flex; flex-direction: column; gap: 2rem;">
+        
+        <!-- API Info Section -->
+        <section class="dashboard-section">
+          <div class="dashboard-header" style="margin-bottom: 1.5rem;">
+            <h2 class="dashboard-title">Admin API Usage Dashboard</h2>
+            <span class="dashboard-subtitle">Direct API Requests Only (Excludes Frontend)</span>
+          </div>
+
+          <!-- Active Users Metrics -->
+          <div class="metrics-grid" style="grid-template-columns: repeat(5, 1fr);">
+            <div class="metric-card">
+              <span class="metric-label">Active Users (24h)</span>
+              <span id="metric-ips-24h" class="metric-value">0</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Active Users (7d)</span>
+              <span id="metric-ips-7d" class="metric-value">0</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Active Users (30d)</span>
+              <span id="metric-ips-30d" class="metric-value">0</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Active Users (60d)</span>
+              <span id="metric-ips-60d" class="metric-value">0</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Active Users (90d)</span>
+              <span id="metric-ips-90d" class="metric-value">0</span>
+            </div>
+          </div>
+
+          <!-- API Charts Grid -->
+          <div class="dashboard-grid" style="margin-top: 1.5rem;">
+            <div class="dashboard-card main-chart-card">
+              <h3>Request Volume (Last 30 Days)</h3>
+              <div class="chart-container">
+                <canvas id="chart-daily-volume"></canvas>
+              </div>
+            </div>
+            <div class="dashboard-card pie-chart-card">
+              <h3>Endpoint Distribution</h3>
+              <div class="chart-container">
+                <canvas id="chart-endpoints"></canvas>
+              </div>
+            </div>
+            <div class="dashboard-card pie-chart-card">
+              <h3>Client User-Agents</h3>
+              <div class="chart-container">
+                <canvas id="chart-user-agents"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Top API Consumers Table -->
+          <div class="dashboard-card table-card" style="margin-top: 1.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 1rem;">
+              <h3 style="margin: 0;">API Consumers</h3>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="filter-shiptracker" style="cursor: pointer; width: 16px; height: 16px;">
+                <label for="filter-shiptracker" style="cursor: pointer; font-size: 0.85rem; font-weight: 600; user-select: none;">Exclude Ship Tracker App Users</label>
+              </div>
+            </div>
+            <div class="table-container">
+              <table class="dashboard-table">
+                <thead>
+                  <tr>
+                    <th>Client Hash (Short)</th>
+                    <th>User-Agent</th>
+                    <th>Total Requests</th>
+                  </tr>
+                </thead>
+                <tbody id="top-consumers-body">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+            <!-- Pagination Controls -->
+            <div id="consumers-pagination" style="display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 1rem; font-size: 0.85rem;">
+              <button id="btn-prev-page" class="btn" style="padding: 0.35rem 0.75rem; background: #1e293b; color: white;" disabled>&larr; Prev</button>
+              <span id="page-indicator">Page 1 of 1</span>
+              <button id="btn-next-page" class="btn" style="padding: 0.35rem 0.75rem; background: #1e293b; color: white;" disabled>Next &rarr;</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Ship Tracker Telemetry Section -->
+        <section class="dashboard-section" style="border-top: 1px dashed #312e81; padding-top: 2rem;">
+          <div class="dashboard-header" style="margin-bottom: 1.5rem;">
+            <h2 class="dashboard-title">Ship Tracker Telemetry</h2>
+            <span class="dashboard-subtitle">Anonymous usage statistics from active installations</span>
+          </div>
+
+          <!-- Telemetry Metrics Grid -->
+          <div class="metrics-grid" style="grid-template-columns: repeat(6, 1fr);">
+            <div class="metric-card">
+              <span class="metric-label">Total Installs</span>
+              <span id="metric-telemetry-total" class="metric-value">0</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Active Installs (30d)</span>
+              <span id="metric-telemetry-active-30d" class="metric-value">0</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Active Installs (60d)</span>
+              <span id="metric-telemetry-active-60d" class="metric-value">0</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Active Installs (90d)</span>
+              <span id="metric-telemetry-active-90d" class="metric-value">0</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">New Installs (7d)</span>
+              <span id="metric-telemetry-new-7d" class="metric-value">0</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">New Installs (30d)</span>
+              <span id="metric-telemetry-new-30d" class="metric-value">0</span>
+            </div>
+          </div>
+
+          <!-- Telemetry Charts -->
+          <div class="dashboard-grid" style="margin-top: 1.5rem;">
+            <div class="dashboard-card pie-chart-card">
+              <h3>App Version Distribution</h3>
+              <div class="chart-container">
+                <canvas id="chart-telemetry-versions"></canvas>
+              </div>
+            </div>
+            <div class="dashboard-card pie-chart-card">
+              <h3>Adoption Rates</h3>
+              <div class="chart-container">
+                <canvas id="chart-telemetry-adoption"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Active Installations Telemetry Table -->
+          <div class="dashboard-card table-card" style="margin-top: 1.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+              <h3 style="margin: 0;">Active Installations</h3>
+              <span style="font-size: 0.8rem; color: var(--text-muted);">Click column headers to sort table</span>
+            </div>
+            <div class="table-container">
+              <table class="dashboard-table">
+                <thead>
+                  <tr>
+                    <th data-sort="last_seen" style="cursor: pointer; user-select: none; text-align: center; width: 60px;">Status &nbsp;<span class="sort-icon">&nbsp;</span></th>
+                    <th data-sort="version" style="cursor: pointer; user-select: none;">Version &nbsp;<span class="sort-icon">&nbsp;</span></th>
+                    <th data-sort="enable_map_entities" style="cursor: pointer; user-select: none; text-align: center;">Map Entities &nbsp;<span class="sort-icon">&nbsp;</span></th>
+                    <th data-sort="include_class_b" style="cursor: pointer; user-select: none; text-align: center;">Class B &nbsp;<span class="sort-icon">&nbsp;</span></th>
+                    <th data-sort="clear_map_on_startup" style="cursor: pointer; user-select: none; text-align: center;">Clear Startup &nbsp;<span class="sort-icon">&nbsp;</span></th>
+                    <th data-sort="map_timeout_minutes" style="cursor: pointer; user-select: none; text-align: center;">Map Timeout &nbsp;<span class="sort-icon">&nbsp;</span></th>
+                    <th data-sort="watchlist_count" style="cursor: pointer; user-select: none; text-align: center;">Watchlist Ships &nbsp;<span class="sort-icon">&nbsp;</span></th>
+                    <th data-sort="created_at" style="cursor: pointer; user-select: none;">Install Date &nbsp;<span class="sort-icon">&nbsp;</span></th>
+                  </tr>
+                </thead>
+                <tbody id="telemetry-clients-body">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+            <!-- Pagination Controls -->
+            <div id="installs-pagination" style="display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 1rem; font-size: 0.85rem;">
+              <button id="btn-prev-installs-page" class="btn" style="padding: 0.35rem 0.75rem; background: #1e293b; color: white;" disabled>&larr; Prev</button>
+              <span id="installs-page-indicator">Page 1 of 1</span>
+              <button id="btn-next-installs-page" class="btn" style="padding: 0.35rem 0.75rem; background: #1e293b; color: white;" disabled>Next &rarr;</button>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+
+    <footer class="app-footer">
+      <p>AISStream Uptime Monitor &bull; <a href="https://github.com/buttermilkgreen/" target="_blank">Buttermilkgreen</a></p>
+    </footer>
+  </div>
+
+  <!-- Chart.js and Dashboard Code -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="admin.js"></script>
+</body>
+
+</html>

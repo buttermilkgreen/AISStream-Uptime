@@ -31,6 +31,23 @@ function hashIp(ip) {
   return crypto.createHash('sha256').update(cleanIp).digest('hex');
 }
 
+let telemetrySalt = null;
+function getTelemetrySalt() {
+  if (!telemetrySalt) {
+    telemetrySalt = process.env.TELEMETRY_SALT || process.env.ADMIN_API_KEY || 'default-telemetry-salt';
+  }
+  return telemetrySalt;
+}
+
+function hashTelemetryIp(ip) {
+  if (!ip) return '';
+  let cleanIp = ip;
+  if (cleanIp.startsWith('::ffff:')) {
+    cleanIp = cleanIp.substring(7);
+  }
+  return crypto.createHmac('sha256', getTelemetrySalt()).update(cleanIp).digest('hex');
+}
+
 // Helper to check if string is raw IP
 function isRawIp(str) {
   if (!str) return false;
@@ -60,6 +77,7 @@ loadEnv();
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.AISSTREAM_API_KEY;
+const AISSTREAM_WS_URL = process.env.AISSTREAM_WS_URL || "wss://stream.aisstream.io/v0/stream";
 const isDevMode = process.env.NODE_ENV === 'DEV' || process.env.DEV === 'true';
 const SILENCE_TIMEOUT = parseInt(process.env.SILENCE_TIMEOUT_SECONDS, 10) || 15;
 const SILENCE_TO_DOWN_TIMEOUT = parseInt(process.env.SILENCE_TO_DOWN_TIMEOUT_SECONDS, 10) || 1800;
@@ -239,9 +257,20 @@ db.serialize(() => {
       enable_api_monitoring INTEGER DEFAULT 1,
       watchlist_count INTEGER DEFAULT 0,
       last_seen TEXT NOT NULL,
-      ip_hash TEXT NOT NULL
+      created_at TEXT,
+      ip_signature TEXT
     )
-  `);
+  `, () => {
+    db.run(`ALTER TABLE telemetry ADD COLUMN created_at TEXT`, (err) => {
+      db.run(`UPDATE telemetry SET created_at = last_seen WHERE created_at IS NULL`);
+    });
+    db.run(`ALTER TABLE telemetry ADD COLUMN ip_signature TEXT`, (err) => {
+      // Ignore error
+    });
+    db.run(`ALTER TABLE telemetry DROP COLUMN ip_hash`, (err) => {
+      // Ignore error if column not found or DROP COLUMN is not supported
+    });
+  });
 
   // Create or Migrate status_votes table to support incident-based voting and hashed IPs
   db.all("PRAGMA table_info(status_votes)", (err, columns) => {
@@ -921,10 +950,10 @@ function connectAISStream() {
     } catch (e) { }
   }
 
-  logEvent("Attempting to connect to stream.aisstream.io...", "info");
+  logEvent(`Attempting to connect to ${AISSTREAM_WS_URL}...`, "info");
 
   try {
-    wsClient = new WebSocket("wss://stream.aisstream.io/v0/stream");
+    wsClient = new WebSocket(AISSTREAM_WS_URL);
   } catch (err) {
     logEvent(`Failed to instantiate WebSocket: ${err.message}`, "error");
     updateState("Down", { message: `Failed to instantiate WebSocket: ${err.message}` });
@@ -1135,15 +1164,25 @@ function startSilenceCheck() {
 }
 
 /**
- * Periodically deletes API request logs older than 30 days.
+ * Periodically deletes API request logs and telemetry check-ins older than configured retention days.
  */
 function pruneApiLogs() {
-  const cutoffTime = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const retentionDays = parseInt(process.env.TELEMETRY_RETENTION_DAYS, 10) || 90;
+  const cutoffTime = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+
   db.run("DELETE FROM api_logs WHERE timestamp < ?", [cutoffTime], (err) => {
     if (err) {
       logEvent(`Failed to prune API logs: ${err.message}`, "error");
     } else {
-      logEvent(`API logs pruned. Removed records older than ${30} days.`, "info");
+      logEvent(`API logs pruned. Removed records older than ${retentionDays} days.`, "info");
+    }
+  });
+
+  db.run("DELETE FROM telemetry WHERE last_seen < ?", [cutoffTime], (err) => {
+    if (err) {
+      logEvent(`Failed to prune telemetry: ${err.message}`, "error");
+    } else {
+      logEvent(`Telemetry pruned. Removed records older than ${retentionDays} days.`, "info");
     }
   });
 }
@@ -1289,15 +1328,16 @@ const server = http.createServer((req, res) => {
           return;
         }
 
-        const ipHash = hashIp(clientIp);
         const lastSeen = new Date().toISOString();
+        const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+        const ipSignature = hashTelemetryIp(clientIp);
 
         db.run(
           `INSERT OR REPLACE INTO telemetry (
             uuid, version, enable_map_entities, include_class_b, 
             clear_map_on_startup, map_timeout_minutes, enable_api_monitoring, 
-            watchlist_count, last_seen, ip_hash
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            watchlist_count, last_seen, created_at, ip_signature
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM telemetry WHERE uuid = ?), ?), ?)`,
           [
             uuid,
             version,
@@ -1308,7 +1348,9 @@ const server = http.createServer((req, res) => {
             enable_api_monitoring ? 1 : 0,
             parseInt(watchlist_count, 10) || 0,
             lastSeen,
-            ipHash
+            uuid,
+            lastSeen,
+            ipSignature
           ],
           (err) => {
             if (err) {
@@ -1428,11 +1470,13 @@ const server = http.createServer((req, res) => {
 
     // Determine if we should query by active incident ID or by state
     const useActiveIncident = (state === currentStatus.state && activeIncidentId !== null);
+    const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
     const countQuery = useActiveIncident
-      ? "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE incident_id = ? GROUP BY vote_type"
-      : "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE status_state = ? AND incident_id IS NULL GROUP BY vote_type";
+      ? "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE incident_id = ? AND timestamp >= ? GROUP BY vote_type"
+      : "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE status_state = ? AND incident_id IS NULL AND timestamp >= ? GROUP BY vote_type";
     
-    const countParams = useActiveIncident ? [activeIncidentId] : [state];
+    const countParams = useActiveIncident ? [activeIncidentId, cutoffTime] : [state, cutoffTime];
 
     db.all(
       countQuery,
@@ -1451,10 +1495,10 @@ const server = http.createServer((req, res) => {
         });
 
         const userQuery = useActiveIncident
-          ? "SELECT vote_type FROM status_votes WHERE client_ip_hash = ? AND incident_id = ?"
-          : "SELECT vote_type FROM status_votes WHERE client_ip_hash = ? AND status_state = ? AND incident_id IS NULL";
+          ? "SELECT vote_type FROM status_votes WHERE client_ip_hash = ? AND incident_id = ? AND timestamp >= ?"
+          : "SELECT vote_type FROM status_votes WHERE client_ip_hash = ? AND status_state = ? AND incident_id IS NULL AND timestamp >= ?";
         
-        const userParams = useActiveIncident ? [hashIp(clientIp), activeIncidentId] : [hashIp(clientIp), state];
+        const userParams = useActiveIncident ? [hashIp(clientIp), activeIncidentId, cutoffTime] : [hashIp(clientIp), state, cutoffTime];
 
         db.get(
           userQuery,
@@ -1525,11 +1569,12 @@ const server = http.createServer((req, res) => {
 
           invalidateCache();
 
+          const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
           const countQuery = useActiveIncident
-            ? "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE incident_id = ? GROUP BY vote_type"
-            : "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE status_state = ? AND incident_id IS NULL GROUP BY vote_type";
+            ? "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE incident_id = ? AND timestamp >= ? GROUP BY vote_type"
+            : "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE status_state = ? AND incident_id IS NULL AND timestamp >= ? GROUP BY vote_type";
           
-          const countParams = useActiveIncident ? [incidentIdToUse] : [state];
+          const countParams = useActiveIncident ? [incidentIdToUse, cutoffTime] : [state, cutoffTime];
 
           db.all(
             countQuery,
@@ -1745,53 +1790,56 @@ const server = http.createServer((req, res) => {
 
     const now = new Date();
     const time7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const time30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const time60d = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString();
+    const time90d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
     Promise.all([
       runQuery("SELECT COUNT(*) AS count FROM telemetry"),
-      runQuery("SELECT COUNT(*) AS count FROM telemetry WHERE last_seen >= ?", [time7d]),
+      runQuery("SELECT COUNT(*) AS count FROM telemetry WHERE last_seen >= ?", [time30d]),
+      runQuery("SELECT COUNT(*) AS count FROM telemetry WHERE last_seen >= ?", [time60d]),
+      runQuery("SELECT COUNT(*) AS count FROM telemetry WHERE last_seen >= ?", [time90d]),
+      runQuery("SELECT COUNT(*) AS count FROM telemetry WHERE created_at >= ?", [time7d]),
+      runQuery("SELECT COUNT(*) AS count FROM telemetry WHERE created_at >= ?", [time30d]),
       runQuery("SELECT version, COUNT(*) AS count FROM telemetry GROUP BY version ORDER BY count DESC"),
       runQuery("SELECT enable_map_entities, COUNT(*) AS count FROM telemetry GROUP BY enable_map_entities"),
       runQuery("SELECT include_class_b, COUNT(*) AS count FROM telemetry GROUP BY include_class_b"),
       runQuery("SELECT clear_map_on_startup, COUNT(*) AS count FROM telemetry GROUP BY clear_map_on_startup"),
       runQuery("SELECT enable_api_monitoring, COUNT(*) AS count FROM telemetry GROUP BY enable_api_monitoring"),
-      runQuery("SELECT AVG(watchlist_count) AS avg_watchlist, MAX(watchlist_count) AS max_watchlist FROM telemetry"),
-      runQuery("SELECT AVG(map_timeout_minutes) AS avg_timeout FROM telemetry"),
       runQuery("SELECT user_agent, COUNT(*) AS count FROM api_logs WHERE user_agent IS NOT NULL GROUP BY user_agent ORDER BY count DESC LIMIT 15"),
-      runQuery("SELECT uuid, version, enable_map_entities, include_class_b, clear_map_on_startup, map_timeout_minutes, enable_api_monitoring, watchlist_count, last_seen, ip_hash FROM telemetry ORDER BY last_seen DESC")
+      runQuery("SELECT uuid, version, enable_map_entities, include_class_b, clear_map_on_startup, map_timeout_minutes, enable_api_monitoring, watchlist_count, last_seen, created_at, (SELECT COUNT(*) FROM telemetry t2 WHERE t2.ip_signature = telemetry.ip_signature AND t2.ip_signature IS NOT NULL AND t2.ip_signature != '') > 1 AS is_duplicate FROM telemetry ORDER BY last_seen DESC")
     ]).then(([
       totalInstalls,
-      active7d,
+      active30d,
+      active60d,
+      active90d,
+      newThisWeek,
+      new30d,
       versions,
       mapEntities,
       classB,
       clearOnStartup,
       apiMonitoring,
-      watchlist,
-      mapTimeout,
       userAgents,
       installsList
     ]) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         totalInstalls: totalInstalls[0] ? totalInstalls[0].count : 0,
-        active7d: active7d[0] ? active7d[0].count : 0,
+        active30d: active30d[0] ? active30d[0].count : 0,
+        active60d: active60d[0] ? active60d[0].count : 0,
+        active90d: active90d[0] ? active90d[0].count : 0,
+        newThisWeek: newThisWeek[0] ? newThisWeek[0].count : 0,
+        new30d: new30d[0] ? new30d[0].count : 0,
         versions,
         mapEntities,
         classB,
         clearOnStartup,
         apiMonitoring,
-        watchlist: {
-          avg: watchlist[0] ? (watchlist[0].avg_watchlist || 0) : 0,
-          max: watchlist[0] ? (watchlist[0].max_watchlist || 0) : 0
-        },
-        mapTimeout: {
-          avg: mapTimeout[0] ? (mapTimeout[0].avg_timeout || 0) : 0
-        },
         userAgents,
         installsList: installsList.map(item => ({
           ...item,
-          short_uuid: item.uuid ? item.uuid.substring(0, 8) + '...' : 'unknown',
-          short_ip: item.ip_hash ? item.ip_hash.substring(0, 8) + '...' : 'unknown'
+          short_uuid: item.uuid ? item.uuid.substring(0, 8) + '...' : 'unknown'
         }))
       }));
     }).catch(err => {
@@ -1849,29 +1897,34 @@ const server = http.createServer((req, res) => {
     const time24h = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
     const time7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const time30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const time60d = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString();
+    const time90d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
     Promise.all([
       runQuery("SELECT COUNT(DISTINCT ip_hash) AS count FROM api_logs WHERE timestamp >= ?", [time24h]),
       runQuery("SELECT COUNT(DISTINCT ip_hash) AS count FROM api_logs WHERE timestamp >= ?", [time7d]),
       runQuery("SELECT COUNT(DISTINCT ip_hash) AS count FROM api_logs WHERE timestamp >= ?", [time30d]),
+      runQuery("SELECT COUNT(DISTINCT ip_hash) AS count FROM api_logs WHERE timestamp >= ?", [time60d]),
+      runQuery("SELECT COUNT(DISTINCT ip_hash) AS count FROM api_logs WHERE timestamp >= ?", [time90d]),
       runQuery("SELECT strftime('%Y-%m-%d', timestamp) AS date, COUNT(*) AS count FROM api_logs WHERE timestamp >= ? GROUP BY date ORDER BY date ASC", [time30d]),
       runQuery("SELECT endpoint, COUNT(*) AS count FROM api_logs GROUP BY endpoint ORDER BY count DESC"),
-      runQuery("SELECT status_code, COUNT(*) AS count FROM api_logs GROUP BY status_code ORDER BY count DESC"),
-      runQuery("SELECT ip_hash AS ip, COUNT(*) AS count FROM api_logs GROUP BY ip_hash ORDER BY count DESC LIMIT 10")
-    ]).then(([unique24h, unique7d, unique30d, dailyVolume, endpoints, statusCodes, topConsumers]) => {
+      runQuery("SELECT ip_hash AS ip, COUNT(*) AS count, MAX(user_agent) AS user_agent FROM api_logs GROUP BY ip_hash ORDER BY count DESC")
+    ]).then(([unique24h, unique7d, unique30d, unique60d, unique90d, dailyVolume, endpoints, topConsumers]) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         uniqueIPs: {
           last24h: unique24h[0] ? unique24h[0].count : 0,
           last7d: unique7d[0] ? unique7d[0].count : 0,
-          last30d: unique30d[0] ? unique30d[0].count : 0
+          last30d: unique30d[0] ? unique30d[0].count : 0,
+          last60d: unique60d[0] ? unique60d[0].count : 0,
+          last90d: unique90d[0] ? unique90d[0].count : 0
         },
         dailyVolume,
         endpoints,
-        statusCodes,
         topConsumers: topConsumers.map(c => ({
           ip: c.ip ? (c.ip.length === 64 ? c.ip.substring(0, 8) + '...' : c.ip) : 'unknown',
-          count: c.count
+          count: c.count,
+          user_agent: c.user_agent || ''
         }))
       }));
     }).catch(err => {
@@ -2186,7 +2239,12 @@ const server = http.createServer((req, res) => {
 
   // Static File Serving
   const parsedUrl = req.url.split('?')[0];
-  let filePath = parsedUrl === '/' ? '/index.html' : parsedUrl;
+  let filePath = parsedUrl;
+  if (filePath === '/') {
+    filePath = '/index.html';
+  } else if (filePath === '/admin') {
+    filePath = '/admin.html';
+  }
   const safePath = path.normalize(filePath).replace(/^(\.\.[\/\\])+/, '');
   const absolutePath = path.join(__dirname, 'public', safePath);
 
