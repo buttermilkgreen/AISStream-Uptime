@@ -475,10 +475,13 @@ db.serialize(() => {
   });
 
   // Create indexes to optimize admin dashboard performance
-  db.run("CREATE INDEX IF NOT EXISTS idx_api_logs_timestamp ON api_logs(timestamp)");
-  db.run("CREATE INDEX IF NOT EXISTS idx_api_logs_ip_hash ON api_logs(ip_hash)");
+  db.run("DROP INDEX IF EXISTS idx_api_logs_timestamp");
+  db.run("DROP INDEX IF EXISTS idx_api_logs_ip_hash");
+  db.run("CREATE INDEX IF NOT EXISTS idx_api_logs_timestamp_ip ON api_logs(timestamp, ip_hash)");
+  db.run("CREATE INDEX IF NOT EXISTS idx_api_logs_user_agent ON api_logs(user_agent)");
   db.run("CREATE INDEX IF NOT EXISTS idx_telemetry_last_seen ON telemetry(last_seen)");
   db.run("CREATE INDEX IF NOT EXISTS idx_telemetry_created_at ON telemetry(created_at)");
+  db.run("CREATE INDEX IF NOT EXISTS idx_telemetry_ip_signature ON telemetry(ip_signature)");
 });
 
 // Load active incident from database on startup, closing any stale/duplicate active ones
@@ -1821,7 +1824,7 @@ const server = http.createServer((req, res) => {
       runQuery("SELECT clear_map_on_startup, COUNT(*) AS count FROM telemetry GROUP BY clear_map_on_startup"),
       runQuery("SELECT enable_api_monitoring, COUNT(*) AS count FROM telemetry GROUP BY enable_api_monitoring"),
       runQuery("SELECT user_agent, COUNT(*) AS count FROM api_logs WHERE user_agent IS NOT NULL GROUP BY user_agent ORDER BY count DESC LIMIT 15"),
-      runQuery("SELECT uuid, version, enable_map_entities, include_class_b, clear_map_on_startup, map_timeout_minutes, enable_api_monitoring, watchlist_count, last_seen, created_at, (SELECT COUNT(*) FROM telemetry t2 WHERE t2.ip_signature = telemetry.ip_signature AND t2.ip_signature IS NOT NULL AND t2.ip_signature != '') > 1 AS is_duplicate FROM telemetry ORDER BY last_seen DESC")
+      runQuery("SELECT t.uuid, t.version, t.enable_map_entities, t.include_class_b, t.clear_map_on_startup, t.map_timeout_minutes, t.enable_api_monitoring, t.watchlist_count, t.last_seen, t.created_at, (dup.cnt > 1) AS is_duplicate FROM telemetry t LEFT JOIN (SELECT ip_signature, COUNT(*) AS cnt FROM telemetry WHERE ip_signature IS NOT NULL AND ip_signature != '' GROUP BY ip_signature) dup ON t.ip_signature = dup.ip_signature ORDER BY t.last_seen DESC")
     ]).then(([
       totalInstalls,
       dau,
