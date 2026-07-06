@@ -1921,8 +1921,8 @@ const server = http.createServer((req, res) => {
       runQuery("SELECT COUNT(DISTINCT ip_hash) AS count FROM api_logs WHERE timestamp >= ?", [time60d]),
       runQuery("SELECT COUNT(DISTINCT ip_hash) AS count FROM api_logs WHERE timestamp >= ?", [time90d]),
       runQuery("SELECT strftime('%Y-%m-%d', timestamp) AS date, COUNT(*) AS count FROM api_logs WHERE timestamp >= ? GROUP BY date ORDER BY date ASC", [time30d]),
-      runQuery("SELECT endpoint, COUNT(*) AS count FROM api_logs GROUP BY endpoint ORDER BY count DESC"),
-      runQuery("SELECT ip_hash AS ip, COUNT(*) AS count, MAX(user_agent) AS user_agent FROM api_logs GROUP BY ip_hash ORDER BY count DESC")
+      runQuery("SELECT endpoint, COUNT(*) AS count FROM api_logs WHERE timestamp >= ? GROUP BY endpoint ORDER BY count DESC", [time30d]),
+      runQuery("SELECT ip_hash AS ip, COUNT(*) AS count, MAX(user_agent) AS user_agent FROM api_logs WHERE timestamp >= ? GROUP BY ip_hash ORDER BY count DESC LIMIT 100", [time30d])
     ]).then(([unique24h, unique7d, unique30d, unique60d, unique90d, dailyVolume, endpoints, topConsumers]) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
