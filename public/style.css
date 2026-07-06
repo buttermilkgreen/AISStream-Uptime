@@ -1616,7 +1616,8 @@ body {
   border-top-color: #1f2937;
 }
 
-.metric-tooltip-container:hover .metric-tooltip {
+.metric-tooltip-container:hover .metric-tooltip,
+.metric-tooltip-container.active .metric-tooltip {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }

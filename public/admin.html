@@ -53,25 +53,55 @@
           </div>
 
           <!-- Active Users Metrics -->
-          <div class="metrics-grid" style="grid-template-columns: repeat(5, 1fr);">
+          <div class="metrics-grid">
             <div class="metric-card">
-              <span class="metric-label">Active Users (24h)</span>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                <span class="metric-label">Active Users (24h)</span>
+                <span class="metric-tooltip-container">
+                  <span style="font-size: 0.85rem; color: #94a3b8; cursor: help; padding: 2px;">ⓘ</span>
+                  <span class="metric-tooltip">Unique API client IPs active within the last 24 hours.</span>
+                </span>
+              </div>
               <span id="metric-ips-24h" class="metric-value">0</span>
             </div>
             <div class="metric-card">
-              <span class="metric-label">Active Users (7d)</span>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                <span class="metric-label">Active Users (7d)</span>
+                <span class="metric-tooltip-container">
+                  <span style="font-size: 0.85rem; color: #94a3b8; cursor: help; padding: 2px;">ⓘ</span>
+                  <span class="metric-tooltip">Unique API client IPs active within the last 7 days.</span>
+                </span>
+              </div>
               <span id="metric-ips-7d" class="metric-value">0</span>
             </div>
             <div class="metric-card">
-              <span class="metric-label">Active Users (30d)</span>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                <span class="metric-label">Active Users (30d)</span>
+                <span class="metric-tooltip-container">
+                  <span style="font-size: 0.85rem; color: #94a3b8; cursor: help; padding: 2px;">ⓘ</span>
+                  <span class="metric-tooltip">Unique API client IPs active within the last 30 days.</span>
+                </span>
+              </div>
               <span id="metric-ips-30d" class="metric-value">0</span>
             </div>
             <div class="metric-card">
-              <span class="metric-label">Active Users (60d)</span>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                <span class="metric-label">Active Users (60d)</span>
+                <span class="metric-tooltip-container">
+                  <span style="font-size: 0.85rem; color: #94a3b8; cursor: help; padding: 2px;">ⓘ</span>
+                  <span class="metric-tooltip">Unique API client IPs active within the last 60 days.</span>
+                </span>
+              </div>
               <span id="metric-ips-60d" class="metric-value">0</span>
             </div>
             <div class="metric-card">
-              <span class="metric-label">Active Users (90d)</span>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                <span class="metric-label">Active Users (90d)</span>
+                <span class="metric-tooltip-container">
+                  <span style="font-size: 0.85rem; color: #94a3b8; cursor: help; padding: 2px;">ⓘ</span>
+                  <span class="metric-tooltip">Unique API client IPs active within the last 90 days.</span>
+                </span>
+              </div>
               <span id="metric-ips-90d" class="metric-value">0</span>
             </div>
           </div>

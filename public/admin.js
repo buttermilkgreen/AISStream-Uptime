@@ -588,4 +588,18 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-next-installs-page').disabled = (installsPage === totalPages);
   }
 
+  // Setup toggle behavior for metric tooltips on mobile / touch events
+  document.addEventListener('click', (e) => {
+    const container = e.target.closest('.metric-tooltip-container');
+    document.querySelectorAll('.metric-tooltip-container').forEach(c => {
+      if (c !== container) {
+        c.classList.remove('active');
+      }
+    });
+    if (container) {
+      e.stopPropagation();
+      container.classList.toggle('active');
+    }
+  });
+
 });
