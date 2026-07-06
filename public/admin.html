@@ -138,29 +138,65 @@
           </div>
 
           <!-- Telemetry Metrics Grid -->
-          <div class="metrics-grid" style="grid-template-columns: repeat(6, 1fr);">
+          <div class="metrics-grid">
             <div class="metric-card">
-              <span class="metric-label">Total Installs</span>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                <span class="metric-label">Total Installs</span>
+                <span class="metric-tooltip-container">
+                  <span style="font-size: 0.85rem; color: #94a3b8; cursor: help; padding: 2px;">ⓘ</span>
+                  <span class="metric-tooltip">Total unique installations ever recorded.</span>
+                </span>
+              </div>
               <span id="metric-telemetry-total" class="metric-value">0</span>
             </div>
             <div class="metric-card">
-              <span class="metric-label">Active Installs (30d)</span>
-              <span id="metric-telemetry-active-30d" class="metric-value">0</span>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                <span class="metric-label">Daily Active (DAU)</span>
+                <span class="metric-tooltip-container">
+                  <span style="font-size: 0.85rem; color: #94a3b8; cursor: help; padding: 2px;">ⓘ</span>
+                  <span class="metric-tooltip">Unique installations active within the last 24 hours.</span>
+                </span>
+              </div>
+              <span id="metric-telemetry-dau" class="metric-value">0</span>
             </div>
             <div class="metric-card">
-              <span class="metric-label">Active Installs (60d)</span>
-              <span id="metric-telemetry-active-60d" class="metric-value">0</span>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                <span class="metric-label">Weekly Active (WAU)</span>
+                <span class="metric-tooltip-container">
+                  <span style="font-size: 0.85rem; color: #94a3b8; cursor: help; padding: 2px;">ⓘ</span>
+                  <span class="metric-tooltip">Unique installations active within the last 7 days.</span>
+                </span>
+              </div>
+              <span id="metric-telemetry-wau" class="metric-value">0</span>
             </div>
             <div class="metric-card">
-              <span class="metric-label">Active Installs (90d)</span>
-              <span id="metric-telemetry-active-90d" class="metric-value">0</span>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                <span class="metric-label">Monthly Active (MAU)</span>
+                <span class="metric-tooltip-container">
+                  <span style="font-size: 0.85rem; color: #94a3b8; cursor: help; padding: 2px;">ⓘ</span>
+                  <span class="metric-tooltip">Unique installations active within the last 30 days.</span>
+                </span>
+              </div>
+              <span id="metric-telemetry-mau" class="metric-value">0</span>
             </div>
             <div class="metric-card">
-              <span class="metric-label">New Installs (7d)</span>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                <span class="metric-label">New Installs (7d)</span>
+                <span class="metric-tooltip-container">
+                  <span style="font-size: 0.85rem; color: #94a3b8; cursor: help; padding: 2px;">ⓘ</span>
+                  <span class="metric-tooltip">New installations created within the last 7 days.</span>
+                </span>
+              </div>
               <span id="metric-telemetry-new-7d" class="metric-value">0</span>
             </div>
             <div class="metric-card">
-              <span class="metric-label">New Installs (30d)</span>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                <span class="metric-label">New Installs (30d)</span>
+                <span class="metric-tooltip-container">
+                  <span style="font-size: 0.85rem; color: #94a3b8; cursor: help; padding: 2px;">ⓘ</span>
+                  <span class="metric-tooltip">New installations created within the last 30 days.</span>
+                </span>
+              </div>
               <span id="metric-telemetry-new-30d" class="metric-value">0</span>
             </div>
           </div>

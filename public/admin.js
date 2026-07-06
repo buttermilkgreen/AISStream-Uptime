@@ -309,9 +309,9 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderTelemetry(data) {
     // 1. Render Metrics
     document.getElementById('metric-telemetry-total').textContent = data.totalInstalls;
-    document.getElementById('metric-telemetry-active-30d').textContent = data.active30d;
-    document.getElementById('metric-telemetry-active-60d').textContent = data.active60d;
-    document.getElementById('metric-telemetry-active-90d').textContent = data.active90d;
+    document.getElementById('metric-telemetry-dau').textContent = data.dau;
+    document.getElementById('metric-telemetry-wau').textContent = data.wau;
+    document.getElementById('metric-telemetry-mau').textContent = data.mau;
     document.getElementById('metric-telemetry-new-7d').textContent = data.newThisWeek;
     document.getElementById('metric-telemetry-new-30d').textContent = data.new30d;
 

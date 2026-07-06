@@ -1333,11 +1333,21 @@ const server = http.createServer((req, res) => {
         const ipSignature = hashTelemetryIp(clientIp);
 
         db.run(
-          `INSERT OR REPLACE INTO telemetry (
+          `INSERT INTO telemetry (
             uuid, version, enable_map_entities, include_class_b, 
             clear_map_on_startup, map_timeout_minutes, enable_api_monitoring, 
             watchlist_count, last_seen, created_at, ip_signature
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM telemetry WHERE uuid = ?), ?), ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(uuid) DO UPDATE SET
+            version = excluded.version,
+            enable_map_entities = excluded.enable_map_entities,
+            include_class_b = excluded.include_class_b,
+            clear_map_on_startup = excluded.clear_map_on_startup,
+            map_timeout_minutes = excluded.map_timeout_minutes,
+            enable_api_monitoring = excluded.enable_api_monitoring,
+            watchlist_count = excluded.watchlist_count,
+            last_seen = excluded.last_seen,
+            ip_signature = excluded.ip_signature`,
           [
             uuid,
             version,
@@ -1348,7 +1358,6 @@ const server = http.createServer((req, res) => {
             enable_api_monitoring ? 1 : 0,
             parseInt(watchlist_count, 10) || 0,
             lastSeen,
-            uuid,
             lastSeen,
             ipSignature
           ],
@@ -1789,16 +1798,15 @@ const server = http.createServer((req, res) => {
     };
 
     const now = new Date();
+    const time24h = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
     const time7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const time30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const time60d = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString();
-    const time90d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
     Promise.all([
       runQuery("SELECT COUNT(*) AS count FROM telemetry"),
+      runQuery("SELECT COUNT(*) AS count FROM telemetry WHERE last_seen >= ?", [time24h]),
+      runQuery("SELECT COUNT(*) AS count FROM telemetry WHERE last_seen >= ?", [time7d]),
       runQuery("SELECT COUNT(*) AS count FROM telemetry WHERE last_seen >= ?", [time30d]),
-      runQuery("SELECT COUNT(*) AS count FROM telemetry WHERE last_seen >= ?", [time60d]),
-      runQuery("SELECT COUNT(*) AS count FROM telemetry WHERE last_seen >= ?", [time90d]),
       runQuery("SELECT COUNT(*) AS count FROM telemetry WHERE created_at >= ?", [time7d]),
       runQuery("SELECT COUNT(*) AS count FROM telemetry WHERE created_at >= ?", [time30d]),
       runQuery("SELECT version, COUNT(*) AS count FROM telemetry GROUP BY version ORDER BY count DESC"),
@@ -1810,9 +1818,9 @@ const server = http.createServer((req, res) => {
       runQuery("SELECT uuid, version, enable_map_entities, include_class_b, clear_map_on_startup, map_timeout_minutes, enable_api_monitoring, watchlist_count, last_seen, created_at, (SELECT COUNT(*) FROM telemetry t2 WHERE t2.ip_signature = telemetry.ip_signature AND t2.ip_signature IS NOT NULL AND t2.ip_signature != '') > 1 AS is_duplicate FROM telemetry ORDER BY last_seen DESC")
     ]).then(([
       totalInstalls,
-      active30d,
-      active60d,
-      active90d,
+      dau,
+      wau,
+      mau,
       newThisWeek,
       new30d,
       versions,
@@ -1826,9 +1834,9 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         totalInstalls: totalInstalls[0] ? totalInstalls[0].count : 0,
-        active30d: active30d[0] ? active30d[0].count : 0,
-        active60d: active60d[0] ? active60d[0].count : 0,
-        active90d: active90d[0] ? active90d[0].count : 0,
+        dau: dau[0] ? dau[0].count : 0,
+        wau: wau[0] ? wau[0].count : 0,
+        mau: mau[0] ? mau[0].count : 0,
         newThisWeek: newThisWeek[0] ? newThisWeek[0].count : 0,
         new30d: new30d[0] ? new30d[0].count : 0,
         versions,
