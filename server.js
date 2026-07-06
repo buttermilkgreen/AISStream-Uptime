@@ -473,6 +473,12 @@ db.serialize(() => {
       stmt.finalize();
     }
   });
+
+  // Create indexes to optimize admin dashboard performance
+  db.run("CREATE INDEX IF NOT EXISTS idx_api_logs_timestamp ON api_logs(timestamp)");
+  db.run("CREATE INDEX IF NOT EXISTS idx_api_logs_ip_hash ON api_logs(ip_hash)");
+  db.run("CREATE INDEX IF NOT EXISTS idx_telemetry_last_seen ON telemetry(last_seen)");
+  db.run("CREATE INDEX IF NOT EXISTS idx_telemetry_created_at ON telemetry(created_at)");
 });
 
 // Load active incident from database on startup, closing any stale/duplicate active ones
