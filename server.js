@@ -1918,23 +1918,29 @@ const server = http.createServer((req, res) => {
     const time90d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
     Promise.all([
-      runQuery("SELECT COUNT(DISTINCT ip_hash) AS count FROM api_logs WHERE timestamp >= ?", [time24h]),
-      runQuery("SELECT COUNT(DISTINCT ip_hash) AS count FROM api_logs WHERE timestamp >= ?", [time7d]),
-      runQuery("SELECT COUNT(DISTINCT ip_hash) AS count FROM api_logs WHERE timestamp >= ?", [time30d]),
-      runQuery("SELECT COUNT(DISTINCT ip_hash) AS count FROM api_logs WHERE timestamp >= ?", [time60d]),
-      runQuery("SELECT COUNT(DISTINCT ip_hash) AS count FROM api_logs WHERE timestamp >= ?", [time90d]),
+      runQuery(`
+        SELECT 
+          COUNT(DISTINCT CASE WHEN timestamp >= ? THEN ip_hash END) AS count24h,
+          COUNT(DISTINCT CASE WHEN timestamp >= ? THEN ip_hash END) AS count7d,
+          COUNT(DISTINCT CASE WHEN timestamp >= ? THEN ip_hash END) AS count30d,
+          COUNT(DISTINCT CASE WHEN timestamp >= ? THEN ip_hash END) AS count60d,
+          COUNT(DISTINCT CASE WHEN timestamp >= ? THEN ip_hash END) AS count90d
+        FROM api_logs
+        WHERE timestamp >= ?
+      `, [time24h, time7d, time30d, time60d, time90d, time90d]),
       runQuery("SELECT strftime('%Y-%m-%d', timestamp) AS date, COUNT(*) AS count FROM api_logs WHERE timestamp >= ? GROUP BY date ORDER BY date ASC", [time30d]),
       runQuery("SELECT endpoint, COUNT(*) AS count FROM api_logs WHERE timestamp >= ? GROUP BY endpoint ORDER BY count DESC", [time30d]),
       runQuery("SELECT ip_hash AS ip, COUNT(*) AS count, MAX(user_agent) AS user_agent FROM api_logs WHERE timestamp >= ? GROUP BY ip_hash ORDER BY count DESC LIMIT 100", [time30d])
-    ]).then(([unique24h, unique7d, unique30d, unique60d, unique90d, dailyVolume, endpoints, topConsumers]) => {
+    ]).then(([uniqueCounts, dailyVolume, endpoints, topConsumers]) => {
+      const counts = uniqueCounts[0] || {};
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         uniqueIPs: {
-          last24h: unique24h[0] ? unique24h[0].count : 0,
-          last7d: unique7d[0] ? unique7d[0].count : 0,
-          last30d: unique30d[0] ? unique30d[0].count : 0,
-          last60d: unique60d[0] ? unique60d[0].count : 0,
-          last90d: unique90d[0] ? unique90d[0].count : 0
+          last24h: counts.count24h || 0,
+          last7d: counts.count7d || 0,
+          last30d: counts.count30d || 0,
+          last60d: counts.count60d || 0,
+          last90d: counts.count90d || 0
         },
         dailyVolume,
         endpoints,
