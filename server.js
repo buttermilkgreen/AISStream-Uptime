@@ -5,8 +5,8 @@ const WebSocket = require('ws');
 const sqlite3 = require('sqlite3').verbose();
 const crypto = require('crypto');
 
-// Banned IP lists for admin lockout
-const bannedIPs = new Set();
+// Banned IP lists for admin lockout (IP maps to ban expiration timestamp)
+const bannedIPs = new Map();
 const adminFailuresByIp = new Map();
 
 // Timing safe comparison helper
@@ -1227,8 +1227,25 @@ const mimeTypes = {
 
 const server = http.createServer((req, res) => {
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-  if (bannedIPs.has(clientIp)) {
-    req.socket.destroy();
+
+  // Helper to check if a route is an admin route
+  const checkIsAdminRoute = (url, method) => {
+    if (!url) return false;
+    const pathPart = url.split('?')[0];
+    if (pathPart.startsWith('/api/v1/admin/')) return true;
+    if (pathPart.match(/^\/api\/v1\/incidents\/\d+$/) && (method === 'PATCH' || method === 'DELETE')) return true;
+    return false;
+  };
+
+  // Clean up expired bans
+  if (bannedIPs.has(clientIp) && Date.now() > bannedIPs.get(clientIp)) {
+    bannedIPs.delete(clientIp);
+  }
+
+  // Block admin requests if IP is temporarily banned
+  if (bannedIPs.has(clientIp) && checkIsAdminRoute(req.url, req.method)) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Forbidden: Admin access temporarily locked due to consecutive verification failures. Please try again in 15 minutes.' }));
     return;
   }
 
@@ -1291,8 +1308,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Rate Limiting Check (Only on /api/v1/ routes)
-  if (req.url.startsWith('/api/v1/')) {
+  // Rate Limiting Check (Only on non-admin /api/v1/ routes)
+  if (req.url.startsWith('/api/v1/') && !checkIsAdminRoute(req.url, req.method)) {
     const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
     if (isRateLimited(clientIp)) {
       res.writeHead(429, { 'Content-Type': 'application/json' });
@@ -1785,8 +1802,8 @@ const server = http.createServer((req, res) => {
       logEvent(`Failed admin telemetry attempt from ${clientIp}. Total attempts: ${attempts}`, "warning");
       
       if (attempts >= 5) {
-        bannedIPs.add(clientIp);
-        logEvent(`IP ${clientIp} temporarily locked out due to repeated admin authentication failures.`, "error");
+        bannedIPs.set(clientIp, Date.now() + 15 * 60 * 1000); // 15-minute ban
+        logEvent(`IP ${clientIp} temporarily locked out from admin endpoints due to repeated authentication failures.`, "error");
       }
       
       res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -1890,8 +1907,8 @@ const server = http.createServer((req, res) => {
       logEvent(`Failed admin authentication attempt from ${clientIp}. Total attempts: ${attempts}`, "warning");
       
       if (attempts >= 3) {
-        bannedIPs.add(clientIp);
-        logEvent(`IP ${clientIp} has been banned due to consecutive admin authentication failures.`, "error");
+        bannedIPs.set(clientIp, Date.now() + 15 * 60 * 1000); // 15-minute ban
+        logEvent(`IP ${clientIp} temporarily locked out from admin endpoints due to consecutive authentication failures.`, "error");
       }
 
       res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -1981,8 +1998,8 @@ const server = http.createServer((req, res) => {
       logEvent(`Failed admin verification attempt from ${clientIp}. Total attempts: ${attempts}`, "warning");
       
       if (attempts >= 3) {
-        bannedIPs.add(clientIp);
-        logEvent(`IP ${clientIp} has been banned due to consecutive verification failures.`, "error");
+        bannedIPs.set(clientIp, Date.now() + 15 * 60 * 1000); // 15-minute ban
+        logEvent(`IP ${clientIp} temporarily locked out from admin endpoints due to consecutive verification failures.`, "error");
       }
 
       res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -2020,8 +2037,8 @@ const server = http.createServer((req, res) => {
       logEvent(`Failed admin authentication attempt from ${clientIp}. Total attempts: ${attempts}`, "warning");
       
       if (attempts >= 3) {
-        bannedIPs.add(clientIp);
-        logEvent(`IP ${clientIp} has been banned due to consecutive admin authentication failures.`, "error");
+        bannedIPs.set(clientIp, Date.now() + 15 * 60 * 1000); // 15-minute ban
+        logEvent(`IP ${clientIp} temporarily locked out from admin endpoints due to consecutive authentication failures.`, "error");
       }
 
       res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -2193,8 +2210,8 @@ const server = http.createServer((req, res) => {
       logEvent(`Failed admin authentication attempt from ${clientIp}. Total attempts: ${attempts}`, "warning");
       
       if (attempts >= 3) {
-        bannedIPs.add(clientIp);
-        logEvent(`IP ${clientIp} has been banned due to consecutive admin authentication failures.`, "error");
+        bannedIPs.set(clientIp, Date.now() + 15 * 60 * 1000); // 15-minute ban
+        logEvent(`IP ${clientIp} temporarily locked out from admin endpoints due to consecutive authentication failures.`, "error");
       }
 
       res.writeHead(401, { 'Content-Type': 'application/json' });

@@ -124,12 +124,6 @@ function replaceDurationInMessage(msg, newDurationText) {
 // Config mapping for status states
 let isAdminVerified = false;
 
-function updateAdminLinkVisibility() {
-  const adminLinkEl = document.getElementById('btn-admin-link');
-  if (adminLinkEl) {
-    adminLinkEl.style.display = isAdminVerified ? 'inline-block' : 'none';
-  }
-}
 
 const STATE_CONFIGS = {
   'Up': {
@@ -941,93 +935,51 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Admin verification helper
   async function verifyAdminKey(token) {
-    if (!token) return false;
+    if (!token) return { valid: false, status: 400 };
     try {
       const res = await fetch('/api/v1/admin/verify', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      return res.ok;
+
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('text/html')) {
+        return { valid: false, status: 200, isIntercepted: true };
+      }
+
+      if (res.ok) {
+        return { valid: true };
+      }
+      return { valid: false, status: res.status };
     } catch (e) {
-      return false;
+      return { valid: false, status: 0, error: e };
     }
   }
 
   // Check saved key on page load
   const savedKey = localStorage.getItem('adminApiKey');
   if (savedKey) {
-    verifyAdminKey(savedKey).then(isValid => {
-      if (isValid) {
+    verifyAdminKey(savedKey).then(result => {
+      if (result.valid) {
         isAdminVerified = true;
         fetchIncidentHistory(); // re-render history with edit options visible
-        updateAdminLinkVisibility(); // show/hide admin header link
       } else {
-        localStorage.removeItem('adminApiKey');
-      }
-    });
-  }
-
-  // Header clicks trigger key settings popover (5 clicks easter egg)
-  const appTitle = document.getElementById('app-title');
-  const adminKeyModal = document.getElementById('admin-key-modal');
-  const closeAdminKeyBtn = document.getElementById('btn-close-admin-key');
-  const saveAdminKeyBtn = document.getElementById('btn-save-admin-key');
-  const clearAdminKeyBtn = document.getElementById('btn-clear-admin-key');
-  const adminKeyInput = document.getElementById('admin-api-key-input');
-
-  let headerClicks = 0;
-  let headerClickTimeout;
-
-  if (appTitle) {
-    appTitle.addEventListener('pointerdown', () => {
-      headerClicks++;
-      clearTimeout(headerClickTimeout);
-      if (headerClicks === 5) {
-        headerClicks = 0;
-        adminKeyInput.value = localStorage.getItem('adminApiKey') || '';
-        adminKeyModal.style.display = 'flex';
-      } else {
-        headerClickTimeout = setTimeout(() => {
-          headerClicks = 0;
-        }, 3000); // reset count after 3 seconds of inactivity
-      }
-    });
-  }
-
-  if (closeAdminKeyBtn) {
-    closeAdminKeyBtn.addEventListener('click', () => {
-      adminKeyModal.style.display = 'none';
-    });
-  }
-
-  if (saveAdminKeyBtn) {
-    saveAdminKeyBtn.addEventListener('click', async () => {
-      const key = adminKeyInput.value.trim();
-      if (key) {
-        const isValid = await verifyAdminKey(key);
-        if (isValid) {
-          localStorage.setItem('adminApiKey', key);
+        // ONLY clear the token if the server explicitly confirmed it is invalid (401 Unauthorized)
+        if (result.status === 401) {
+          console.warn("Saved admin key is invalid. Evicting from storage.");
+          localStorage.removeItem('adminApiKey');
+        } else if (result.isIntercepted) {
+          console.warn("Verification request was intercepted (e.g. Cloudflare 2FA). Key retained.");
+          // Still assume verified locally so that they can see edit buttons
           isAdminVerified = true;
-          adminKeyModal.style.display = 'none';
           fetchIncidentHistory();
-          updateAdminLinkVisibility();
         } else {
-          alert("Invalid Admin Key. Access denied.");
+          console.warn(`Verification failed with status ${result.status} or network error. Key retained.`);
+          // Assume verified locally so they can still try to edit
+          isAdminVerified = true;
+          fetchIncidentHistory();
         }
-      } else {
-        alert("Please enter a key.");
       }
-    });
-  }
-
-  if (clearAdminKeyBtn) {
-    clearAdminKeyBtn.addEventListener('click', () => {
-      localStorage.removeItem('adminApiKey');
-      isAdminVerified = false;
-      adminKeyInput.value = '';
-      adminKeyModal.style.display = 'none';
-      fetchIncidentHistory();
-      updateAdminLinkVisibility();
     });
   }
 
@@ -1128,9 +1080,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const token = localStorage.getItem('adminApiKey');
 
       if (!token) {
-        alert("Admin API Key is missing. Please set it first using the 'Admin Key' button in the header.");
+        alert("Admin API Key is missing. Please authenticate via the admin page first.");
         editIncidentModal.style.display = 'none';
-        adminKeyModal.style.display = 'flex';
         return;
       }
 

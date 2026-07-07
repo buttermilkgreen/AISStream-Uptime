@@ -71,6 +71,13 @@ document.addEventListener('DOMContentLoaded', () => {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
+
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('text/html')) {
+        alert('Verification request was intercepted. Please ensure you are authenticated through Cloudflare.');
+        return;
+      }
+
       if (res.ok) {
         localStorage.setItem('adminApiKey', token);
         authGate.style.display = 'none';
@@ -78,14 +85,28 @@ document.addEventListener('DOMContentLoaded', () => {
         btnLogout.style.display = 'inline-block';
         loadDashboardData(token);
       } else {
-        alert('Invalid Admin Key. Access denied.');
-        if (savedKey) {
+        let errorMsg = 'Access denied.';
+        try {
+          const data = await res.json();
+          if (data && data.error) errorMsg = data.error;
+        } catch (err) {}
+
+        if (res.status === 401) {
+          alert('Invalid Admin Key. Access denied.');
           localStorage.removeItem('adminApiKey');
           showAuthGate();
+        } else {
+          alert(`Verification failed (${res.status}): ${errorMsg}`);
+          if (!localStorage.getItem('adminApiKey')) {
+            showAuthGate();
+          }
         }
       }
     } catch (e) {
       alert('Network or server error during validation.');
+      if (!localStorage.getItem('adminApiKey')) {
+        showAuthGate();
+      }
     }
   }
 
@@ -96,8 +117,23 @@ document.addEventListener('DOMContentLoaded', () => {
         fetch('/api/v1/admin/telemetry', { headers: { 'Authorization': `Bearer ${key}` } })
       ]);
 
+      if (usageRes.status === 401 || telemetryRes.status === 401) {
+        alert('Session expired or key is invalid. Please log in again.');
+        localStorage.removeItem('adminApiKey');
+        showAuthGate();
+        return;
+      }
+
       if (!usageRes.ok || !telemetryRes.ok) {
-        throw new Error('Unauthorized or server error');
+        const status = !usageRes.ok ? usageRes.status : telemetryRes.status;
+        throw new Error(`Server returned status code ${status}`);
+      }
+
+      const contentType1 = usageRes.headers.get('content-type') || '';
+      const contentType2 = telemetryRes.headers.get('content-type') || '';
+      if (contentType1.includes('text/html') || contentType2.includes('text/html')) {
+        alert('Dashboard data request was intercepted. Please ensure you are authenticated through Cloudflare.');
+        return;
       }
 
       const usageData = await usageRes.json();
@@ -108,8 +144,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     } catch (err) {
       console.error(err);
-      localStorage.removeItem('adminApiKey');
-      showAuthGate();
+      alert(`Failed to load dashboard data: ${err.message || err}`);
     }
   }
 

@@ -26,7 +26,6 @@
         <p class="logo-subtitle">Unofficial uptime monitor</p>
       </div>
       <div class="header-buttons">
-        <a href="/admin" class="btn" id="btn-admin-link" style="display: none; background: #2563eb; color: white;">Admin Dashboard</a>
         <a href="https://github.com/aisstream/issues/issues" class="btn" id="btn-subscribe" target="_blank" rel="noopener noreferrer">
           <svg class="btn-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true" style="margin-right: 6px; display: inline-block; vertical-align: text-bottom;">
             <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.35 3.12.88.01.47.01.84.01.93 0 .22-.16.47-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path>
@@ -121,25 +120,6 @@
     </footer>
   </div>
 
-  <!-- Admin Key Modal -->
-  <div id="admin-key-modal" class="modal-overlay" style="display: none;">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h3>Welcome</h3>
-        <button id="btn-close-admin-key" class="btn-close-modal">&times;</button>
-      </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <input type="password" id="admin-api-key-input" placeholder="..."
-            style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem;">
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button id="btn-clear-admin-key" class="btn" style="background: #ef4444; color: white;">Clear Key</button>
-        <button id="btn-save-admin-key" class="btn" style="background: #2563eb; color: white;">Verify & Save</button>
-      </div>
-    </div>
-  </div>
 
   <!-- Edit Incident Modal -->
   <div id="edit-incident-modal" class="modal-overlay" style="display: none;">
