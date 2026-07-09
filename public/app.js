@@ -1197,9 +1197,149 @@ document.addEventListener('click', () => {
   });
 });
 
+// Fetch CMS content and hydrate SEO/copy elements
+async function fetchCMS() {
+  try {
+    const res = await fetch('/api/v1/cms');
+    if (!res.ok) throw new Error('Failed to load CMS data');
+    const data = await res.json();
+    
+    // Map list of {key, value} to a key-value object
+    const cms = {};
+    data.forEach(item => {
+      cms[item.key] = item.value;
+    });
+
+    // 1. Hydrate Site Copy
+    const titleEl = document.getElementById('html-title');
+    if (titleEl && cms['site.title']) titleEl.textContent = cms['site.title'];
+    
+    const appTitleEl = document.getElementById('app-title');
+    if (appTitleEl && cms['site.title']) appTitleEl.textContent = cms['site.title'].split('|')[0].trim();
+
+    const subtitleEl = document.querySelector('.logo-subtitle');
+    if (subtitleEl && cms['site.subtitle']) subtitleEl.textContent = cms['site.subtitle'];
+
+    const aboutTitleEl = document.getElementById('about-title');
+    if (aboutTitleEl && cms['site.about_title']) aboutTitleEl.textContent = cms['site.about_title'];
+
+    const aboutTextEl = document.getElementById('about-text');
+    if (aboutTextEl && cms['site.about_text']) aboutTextEl.textContent = cms['site.about_text'];
+
+    const statesTitleEl = document.getElementById('states-title');
+    if (statesTitleEl && cms['site.states_title']) statesTitleEl.textContent = cms['site.states_title'];
+
+    const stateUpEl = document.getElementById('state-explain-up');
+    if (stateUpEl && cms['site.state_up_desc']) stateUpEl.textContent = cms['site.state_up_desc'];
+
+    const stateSilentEl = document.getElementById('state-explain-silent');
+    if (stateSilentEl && cms['site.state_silent_desc']) stateSilentEl.textContent = cms['site.state_silent_desc'];
+
+    const stateAuthEl = document.getElementById('state-explain-auth');
+    if (stateAuthEl && cms['site.state_auth_desc']) stateAuthEl.textContent = cms['site.state_auth_desc'];
+
+    const stateDownEl = document.getElementById('state-explain-down');
+    if (stateDownEl && cms['site.state_down_desc']) stateDownEl.textContent = cms['site.state_down_desc'];
+
+    const apiTitleEl = document.getElementById('api-check-title');
+    if (apiTitleEl && cms['site.api_check_title']) apiTitleEl.textContent = cms['site.api_check_title'];
+
+    const footerEl = document.getElementById('app-footer');
+    if (footerEl && cms['site.footer']) {
+      footerEl.innerHTML = `<p>${escapeHtml(cms['site.footer'])}</p>`;
+    }
+
+    // Hydrate FAQs
+    for (let i = 1; i <= 4; i++) {
+      const qEl = document.getElementById(`faq-${i}-q`);
+      const aEl = document.getElementById(`faq-${i}-a`);
+      if (qEl && cms[`faq.${i}.q`]) qEl.textContent = cms[`faq.${i}.q`];
+      if (aEl && cms[`faq.${i}.a`]) aEl.textContent = cms[`faq.${i}.a`];
+    }
+
+    // 2. Hydrate Status State Configs
+    const stateMapping = {
+      'Up': 'state.up',
+      'Silent Failure': 'state.silent',
+      'Auth Error': 'state.auth',
+      'Down': 'state.down',
+      'Pending': 'state.pending'
+    };
+
+    for (const [stateName, prefix] of Object.entries(stateMapping)) {
+      if (STATE_CONFIGS[stateName]) {
+        if (cms[`${prefix}.title`]) STATE_CONFIGS[stateName].statusTitle = cms[`${prefix}.title`];
+        if (cms[`${prefix}.desc`]) STATE_CONFIGS[stateName].description = cms[`${prefix}.desc`];
+        if (cms[`${prefix}.badge`]) STATE_CONFIGS[stateName].badgeText = cms[`${prefix}.badge`];
+      }
+    }
+
+    // 3. Inject JSON-LD structured schemas
+    injectJsonLd(cms);
+
+  } catch (err) {
+    console.error('Error fetching/applying CMS content:', err);
+    // Fall back to default static HTML schema
+    injectJsonLd();
+  }
+}
+
+// Injects Google JSON-LD schema tags for WebSite and FAQPage SEO
+function injectJsonLd(cms = {}) {
+  // Remove existing dynamic json-ld script tags if any
+  document.querySelectorAll('script[type="application/ld+json"]').forEach(s => s.remove());
+
+  // WebSite Schema
+  const websiteSchema = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "AISStream Uptime Monitor",
+    "url": "https://aisuptime.buttermilkgreen.fyi",
+    "description": cms['site.about_text'] || "Real-time status tracking for the aisstream.io WebSocket API."
+  };
+
+  const wsScript = document.createElement('script');
+  wsScript.type = 'application/ld+json';
+  wsScript.text = JSON.stringify(websiteSchema);
+  document.head.appendChild(wsScript);
+
+  // FAQPage Schema
+  const faqs = [];
+  for (let i = 1; i <= 4; i++) {
+    const q = cms[`faq.${i}.q`] || document.getElementById(`faq-${i}-q`)?.textContent;
+    const a = cms[`faq.${i}.a`] || document.getElementById(`faq-${i}-a`)?.textContent;
+    if (q && a) {
+      faqs.push({
+        "@type": "Question",
+        "name": q,
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": a
+        }
+      });
+    }
+  }
+
+  if (faqs.length > 0) {
+    const faqSchema = {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": faqs
+    };
+
+    const faqScript = document.createElement('script');
+    faqScript.type = 'application/ld+json';
+    faqScript.text = JSON.stringify(faqSchema);
+    document.head.appendChild(faqScript);
+  }
+}
+
 // Initial runs
-fetchStatus();
-setInterval(fetchStatus, 10000);
-fetchIncidentHistory();
-setInterval(fetchIncidentHistory, 10000);
+(async () => {
+  await fetchCMS();
+  fetchStatus();
+  setInterval(fetchStatus, 10000);
+  fetchIncidentHistory();
+  setInterval(fetchIncidentHistory, 10000);
+})();
 

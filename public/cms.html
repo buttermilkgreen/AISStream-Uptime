@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Content Management System (CMS) for AISStream status monitor.">
+  <title>CMS Dashboard - AISStream Status</title>
+
+  <!-- Premium Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="style.css?v=2">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-area">
+        <h1>AIS Stream CMS</h1>
+        <p class="logo-subtitle">Manage Website Content & Copy</p>
+      </div>
+      <div class="header-buttons">
+        <a href="/" class="btn" style="background: #1e293b; color: white;">&larr; Uptime Monitor</a>
+        <button id="btn-logout" class="btn" style="background: #ef4444; color: white; display: none;">Logout</button>
+      </div>
+    </header>
+
+    <main style="display: flex; flex-direction: column; gap: 1.75rem;">
+      <!-- Authentication Gate -->
+      <div id="auth-gate" class="dashboard-card" style="max-width: 480px; margin: 4rem auto; padding: 2rem; border: 1px solid #312e81;">
+        <h2 style="text-align: center; margin-bottom: 0.5rem; font-weight: 800;">Admin Verification</h2>
+        <p style="text-align: center; color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">Enter your Admin API Key to edit site contents.</p>
+        <div class="form-group" style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <input type="password" id="admin-pass-key" placeholder="Enter ADMIN_API_KEY..."
+            style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.85rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem; text-align: center;">
+          <button id="btn-submit-auth" class="btn" style="background: #2563eb; color: white; padding: 0.85rem; font-weight: 600; width: 100%;">Verify & Authorize</button>
+        </div>
+      </div>
+
+      <!-- CMS Editor Workspace (Hidden by default) -->
+      <div id="cms-workspace" style="display: none; display: flex; flex-direction: column; gap: 1.5rem;">
+        
+        <!-- Tab Navigation -->
+        <div class="cms-tabs" style="display: flex; gap: 0.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">
+          <button class="cms-tab-btn active" data-tab="general">General Info & Branding</button>
+          <button class="cms-tab-btn" data-tab="states">Status Indicators</button>
+          <button class="cms-tab-btn" data-tab="faqs">FAQs</button>
+        </div>
+
+        <form id="cms-form" style="display: flex; flex-direction: column; gap: 1.5rem;">
+          <!-- General Branding Tab -->
+          <div id="tab-general" class="tab-pane active" style="display: flex; flex-direction: column; gap: 1.25rem;">
+            <!-- Inputs dynamically populated -->
+          </div>
+
+          <!-- Status Indicators Tab -->
+          <div id="tab-states" class="tab-pane" style="display: none; flex-direction: column; gap: 1.25rem;">
+            <!-- Inputs dynamically populated -->
+          </div>
+
+          <!-- FAQs Tab -->
+          <div id="tab-faqs" class="tab-pane" style="display: none; flex-direction: column; gap: 1.25rem;">
+            <!-- Inputs dynamically populated -->
+          </div>
+
+          <!-- Action bar -->
+          <div class="cms-action-bar" style="display: flex; align-items: center; justify-content: space-between; padding-top: 1.5rem; border-top: 1px solid var(--border-color); gap: 1rem;">
+            <div id="save-status-msg" style="font-size: 0.9rem; font-weight: 600; transition: var(--transition-smooth); opacity: 0;">Content Saved!</div>
+            <div style="display: flex; gap: 0.75rem;">
+              <button type="button" id="btn-reset" class="btn" style="background: #64748b; color: white;">Discard Changes</button>
+              <button type="submit" id="btn-save" class="btn" style="background: #10b981; border-color: #10b981; color: white;">Save Copy Updates</button>
+            </div>
+          </div>
+        </form>
+
+      </div>
+    </main>
+
+    <footer class="app-footer">
+      <p>AISStream Uptime CMS &bull; <a href="https://github.com/buttermilkgreen/" target="_blank">Buttermilkgreen</a></p>
+    </footer>
+  </div>
+
+  <script src="cms.js"></script>
+</body>
+</html>

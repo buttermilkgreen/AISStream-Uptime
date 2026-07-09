@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /admin.html
+Disallow: /cms
+Disallow: /cms.html
+
+Sitemap: https://aisuptime.buttermilkgreen.fyi/sitemap.xml

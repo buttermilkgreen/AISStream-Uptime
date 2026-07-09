@@ -19,6 +19,8 @@ services:
       - API_CACHE_TTL_SECONDS=${API_CACHE_TTL_SECONDS}
       - ADMIN_API_KEY=${ADMIN_API_KEY}
       - DEV=${DEV}
+      - TELEMETRY_RETENTION_DAYS=${TELEMETRY_RETENTION_DAYS:-90}
+      - API_LOGS_RETENTION_DAYS=${API_LOGS_RETENTION_DAYS:-30}
     volumes:
       # If DATA_VOLUME_PATH is not set, it defaults to a local './data' folder
       - ${DATA_VOLUME_PATH:-./data}:/usr/src/app/data

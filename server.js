@@ -482,6 +482,79 @@ db.serialize(() => {
   db.run("CREATE INDEX IF NOT EXISTS idx_telemetry_last_seen ON telemetry(last_seen)");
   db.run("CREATE INDEX IF NOT EXISTS idx_telemetry_created_at ON telemetry(created_at)");
   db.run("CREATE INDEX IF NOT EXISTS idx_telemetry_ip_signature ON telemetry(ip_signature)");
+
+  // Initialize CMS content table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS cms_content (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      group_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'text'
+    )
+  `, (err) => {
+    if (err) {
+      console.error("Error creating cms_content table:", err.message);
+      return;
+    }
+    
+    // Seed default CMS content if not already seeded
+    const seeds = [
+      { key: 'site.title', value: 'AISStream Status Page & Uptime Monitor | Is AISStream Down?', group_id: 'general', label: 'Site Title', type: 'text' },
+      { key: 'site.subtitle', value: 'Unofficial uptime monitor', group_id: 'general', label: 'Site Subtitle', type: 'text' },
+      { key: 'site.about_title', value: 'About AISStream', group_id: 'general', label: 'About Section Title', type: 'text' },
+      { key: 'site.about_text', value: 'The aisstream.io service provides real-time access to global AIS (Automatic Identification System) vessel telemetry data via a developer-friendly WebSocket interface. This unofficial status page monitors the streaming endpoint\'s availability and stability.', group_id: 'general', label: 'About Description', type: 'textarea' },
+      { key: 'site.states_title', value: 'Understanding Connection States', group_id: 'general', label: 'States Section Title', type: 'text' },
+      { key: 'site.state_up_desc', value: 'Connected and receiving ship positions in real-time.', group_id: 'states', label: 'Up State Description text', type: 'textarea' },
+      { key: 'site.state_silent_desc', value: 'The WebSocket connection is active, but no AIS shipping messages have been received for a prolonged period.', group_id: 'states', label: 'Silent Failure Description text', type: 'textarea' },
+      { key: 'site.state_auth_desc', value: 'The monitoring daemon failed to authenticate. This typically indicates an expired or invalid API key.', group_id: 'states', label: 'Auth Error Description text', type: 'textarea' },
+      { key: 'site.state_down_desc', value: 'The stream endpoint is completely unreachable or offline.', group_id: 'states', label: 'Down State Description text', type: 'textarea' },
+      { key: 'site.api_check_title', value: 'Programmatic API Status Check', group_id: 'general', label: 'API Check Title', type: 'text' },
+      { key: 'site.footer', value: 'AISStream Uptime Monitor • Buttermilkgreen', group_id: 'general', label: 'Footer Text', type: 'text' },
+      
+      { key: 'state.up.title', value: 'Fully Operational', group_id: 'states', label: 'Up State Banner Title', type: 'text' },
+      { key: 'state.up.desc', value: 'No known issues', group_id: 'states', label: 'Up State Banner Description', type: 'textarea' },
+      { key: 'state.up.badge', value: 'Operational', group_id: 'states', label: 'Up State Badge Text', type: 'text' },
+      { key: 'state.silent.title', value: 'Partial Outage', group_id: 'states', label: 'Silent Banner Title', type: 'text' },
+      { key: 'state.silent.desc', value: 'The WebSocket connection is open, but no messages have arrived in the last 15 seconds.', group_id: 'states', label: 'Silent Banner Description', type: 'textarea' },
+      { key: 'state.silent.badge', value: 'Silent Failure', group_id: 'states', label: 'Silent Badge Text', type: 'text' },
+      { key: 'state.auth.title', value: 'Configuration Alert', group_id: 'states', label: 'Auth Banner Title', type: 'text' },
+      { key: 'state.auth.desc', value: 'Connection rejected or closed by the server. Please verify your API Key is valid.', group_id: 'states', label: 'Auth Banner Description', type: 'textarea' },
+      { key: 'state.auth.badge', value: 'Auth Error', group_id: 'states', label: 'Auth Badge Text', type: 'text' },
+      { key: 'state.down.title', value: 'Major Outage', group_id: 'states', label: 'Down Banner Title', type: 'text' },
+      { key: 'state.down.desc', value: 'The connection to the AISStream server has been lost, or the service is currently unreachable.', group_id: 'states', label: 'Down Banner Description', type: 'textarea' },
+      { key: 'state.down.badge', value: 'Major Outage', group_id: 'states', label: 'Down Badge Text', type: 'text' },
+      { key: 'state.pending.title', value: 'Connecting...', group_id: 'states', label: 'Pending Banner Title', type: 'text' },
+      { key: 'state.pending.desc', value: 'Establishing WebSocket connection and awaiting initial ship data.', group_id: 'states', label: 'Pending Banner Description', type: 'textarea' },
+      { key: 'state.pending.badge', value: 'Pending', group_id: 'states', label: 'Pending Badge Text', type: 'text' },
+ 
+      { key: 'faq.1.q', value: 'Is AISStream down right now?', group_id: 'faqs', label: 'FAQ 1 Question', type: 'text' },
+      { key: 'faq.1.a', value: 'You can check the live status at the top of this dashboard. The monitor verifies connection status every 30 seconds.', group_id: 'faqs', label: 'FAQ 1 Answer', type: 'textarea' },
+      { key: 'faq.2.q', value: 'What causes a Silent Failure?', group_id: 'faqs', label: 'FAQ 2 Question', type: 'text' },
+      { key: 'faq.2.a', value: 'A Silent Failure occurs when the WebSocket connection is successfully established, but no actual marine vessel position reports are received. This is often caused by database bottlenecks or upstream parser delays on the service provider side.', group_id: 'faqs', label: 'FAQ 2 Answer', type: 'textarea' },
+      { key: 'faq.3.q', value: 'How do I query the status endpoint programmatically?', group_id: 'faqs', label: 'FAQ 3 Question', type: 'text' },
+      { key: 'faq.3.a', value: 'You can fetch the JSON status at `/api/v1/status?simple=true`. A standard JSON response containing the current state, last checked timestamp, and last message received timestamp is returned.', group_id: 'faqs', label: 'FAQ 3 Answer', type: 'textarea' },
+      { key: 'faq.4.q', value: 'Who maintains this status monitor?', group_id: 'faqs', label: 'FAQ 4 Question', type: 'text' },
+      { key: 'faq.4.a', value: 'This uptime monitor is an unofficial community-maintained service built by Buttermilkgreen. It is not affiliated with the official aisstream.io developers.', group_id: 'faqs', label: 'FAQ 4 Answer', type: 'textarea' }
+    ];
+ 
+    db.serialize(() => {
+      const stmt = db.prepare(`INSERT OR IGNORE INTO cms_content (key, value, group_id, label, type) VALUES (?, ?, ?, ?, ?)`);
+      seeds.forEach(s => {
+        stmt.run(s.key, s.value, s.group_id, s.label, s.type, (seedErr) => {
+          if (seedErr) {
+            console.error(`Error seeding CMS key ${s.key}:`, seedErr.message);
+          }
+        });
+      });
+      stmt.finalize((finalErr) => {
+        if (!finalErr) {
+          // Migrate old general state groups if database already exists
+          db.run("UPDATE cms_content SET group_id = 'states' WHERE key IN ('site.state_up_desc', 'site.state_silent_desc', 'site.state_auth_desc', 'site.state_down_desc')");
+        }
+      });
+    });
+  });
 });
 
 // Load active incident from database on startup, closing any stale/duplicate active ones
@@ -1176,22 +1249,25 @@ function startSilenceCheck() {
  * Periodically deletes API request logs and telemetry check-ins older than configured retention days.
  */
 function pruneApiLogs() {
-  const retentionDays = parseInt(process.env.TELEMETRY_RETENTION_DAYS, 10) || 90;
-  const cutoffTime = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+  const apiRetentionDays = parseInt(process.env.API_LOGS_RETENTION_DAYS, 10) || 30;
+  const telemetryRetentionDays = parseInt(process.env.TELEMETRY_RETENTION_DAYS, 10) || 90;
+  
+  const apiCutoffTime = new Date(Date.now() - apiRetentionDays * 24 * 60 * 60 * 1000).toISOString();
+  const telemetryCutoffTime = new Date(Date.now() - telemetryRetentionDays * 24 * 60 * 60 * 1000).toISOString();
 
-  db.run("DELETE FROM api_logs WHERE timestamp < ?", [cutoffTime], (err) => {
+  db.run("DELETE FROM api_logs WHERE timestamp < ?", [apiCutoffTime], (err) => {
     if (err) {
       logEvent(`Failed to prune API logs: ${err.message}`, "error");
     } else {
-      logEvent(`API logs pruned. Removed records older than ${retentionDays} days.`, "info");
+      logEvent(`API logs pruned. Removed records older than ${apiRetentionDays} days.`, "info");
     }
   });
 
-  db.run("DELETE FROM telemetry WHERE last_seen < ?", [cutoffTime], (err) => {
+  db.run("DELETE FROM telemetry WHERE last_seen < ?", [telemetryCutoffTime], (err) => {
     if (err) {
       logEvent(`Failed to prune telemetry: ${err.message}`, "error");
     } else {
-      logEvent(`Telemetry pruned. Removed records older than ${retentionDays} days.`, "info");
+      logEvent(`Telemetry pruned. Removed records older than ${telemetryRetentionDays} days.`, "info");
     }
   });
 }
@@ -1279,7 +1355,11 @@ const server = http.createServer((req, res) => {
       const isAdmin = url.startsWith('/api/v1/admin/');
       const isHealth = url === '/api/v1/health';
       
-      if (!isWebFrontend && !isAdmin && !isHealth) {
+      const userAgent = (req.headers['user-agent'] || '').toLowerCase();
+      const isShipTracker = userAgent.includes('shiptracker') || userAgent.includes('ship-tracker');
+      const isTelemetry = url.startsWith('/api/v1/status') && req.method === 'POST';
+      
+      if (!isWebFrontend && !isAdmin && !isHealth && !isShipTracker && !isTelemetry) {
         const responseTime = Date.now() - startTime;
         const statusCode = res.statusCode;
         const endpoint = url.split('?')[0];
@@ -1934,6 +2014,8 @@ const server = http.createServer((req, res) => {
     const time60d = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString();
     const time90d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
+    const excludeShipTrackerFilter = "AND (user_agent IS NULL OR (LOWER(user_agent) NOT LIKE '%shiptracker%' AND LOWER(user_agent) NOT LIKE '%ship-tracker%'))";
+
     Promise.all([
       runQuery(`
         SELECT 
@@ -1943,11 +2025,11 @@ const server = http.createServer((req, res) => {
           COUNT(DISTINCT CASE WHEN timestamp >= ? THEN ip_hash END) AS count60d,
           COUNT(DISTINCT CASE WHEN timestamp >= ? THEN ip_hash END) AS count90d
         FROM api_logs
-        WHERE timestamp >= ?
+        WHERE timestamp >= ? ${excludeShipTrackerFilter}
       `, [time24h, time7d, time30d, time60d, time90d, time90d]),
-      runQuery("SELECT strftime('%Y-%m-%d', timestamp) AS date, COUNT(*) AS count FROM api_logs WHERE timestamp >= ? GROUP BY date ORDER BY date ASC", [time30d]),
-      runQuery("SELECT endpoint, COUNT(*) AS count FROM api_logs WHERE timestamp >= ? GROUP BY endpoint ORDER BY count DESC", [time30d]),
-      runQuery("SELECT ip_hash AS ip, COUNT(*) AS count, MAX(user_agent) AS user_agent FROM api_logs WHERE timestamp >= ? GROUP BY ip_hash ORDER BY count DESC LIMIT 100", [time30d])
+      runQuery(`SELECT strftime('%Y-%m-%d', timestamp) AS date, COUNT(*) AS count FROM api_logs WHERE timestamp >= ? ${excludeShipTrackerFilter} GROUP BY date ORDER BY date ASC`, [time30d]),
+      runQuery(`SELECT endpoint, COUNT(*) AS count FROM api_logs WHERE timestamp >= ? ${excludeShipTrackerFilter} GROUP BY endpoint ORDER BY count DESC`, [time30d]),
+      runQuery(`SELECT ip_hash AS ip, COUNT(*) AS count, MAX(user_agent) AS user_agent FROM api_logs WHERE timestamp >= ? ${excludeShipTrackerFilter} GROUP BY ip_hash ORDER BY count DESC LIMIT 100`, [time30d])
     ]).then(([uniqueCounts, dailyVolume, endpoints, topConsumers]) => {
       const counts = uniqueCounts[0] || {};
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -2277,6 +2359,93 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // API - Get CMS Content (Public endpoint)
+  if (req.url === '/api/v1/cms' && req.method === 'GET') {
+    db.all("SELECT key, value, group_id, label, type FROM cms_content", (err, rows) => {
+      if (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(rows));
+    });
+    return;
+  }
+
+  // API - Update CMS Content (Protected endpoint)
+  if (req.url === '/api/v1/cms' && req.method === 'POST') {
+    const adminKey = process.env.ADMIN_API_KEY;
+    if (!adminKey) {
+      res.writeHead(501, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Server configuration error: ADMIN_API_KEY is not set.' }));
+      return;
+    }
+
+    const authHeader = req.headers['authorization'];
+    let authenticated = false;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const sentToken = authHeader.substring(7);
+      authenticated = safeCompare(sentToken, adminKey);
+    }
+
+    if (!authenticated) {
+      const attempts = (adminFailuresByIp.get(clientIp) || 0) + 1;
+      adminFailuresByIp.set(clientIp, attempts);
+      logEvent(`Failed CMS update attempt from ${clientIp}. Total attempts: ${attempts}`, "warning");
+      
+      if (attempts >= 5) {
+        bannedIPs.set(clientIp, Date.now() + 15 * 60 * 1000); // 15-minute ban
+        logEvent(`IP ${clientIp} temporarily locked out from admin endpoints due to repeated authentication failures.`, "error");
+      }
+      
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized: Invalid Admin Key' }));
+      return;
+    }
+
+    adminFailuresByIp.delete(clientIp);
+
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk.toString();
+    });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body);
+        if (!Array.isArray(payload)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid payload: expected an array of {key, value} objects.' }));
+          return;
+        }
+
+        db.serialize(() => {
+          const stmt = db.prepare("UPDATE cms_content SET value = ? WHERE key = ?");
+          payload.forEach(item => {
+            if (item.key && typeof item.value === 'string') {
+              stmt.run(item.value, item.key);
+            }
+          });
+          stmt.finalize((err) => {
+            if (err) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: `Update failed: ${err.message}` }));
+              return;
+            }
+            logEvent(`CMS content updated by admin from ${clientIp}.`, "success");
+            invalidateCache();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, message: 'CMS content updated successfully.' }));
+          });
+        });
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Invalid JSON: ${e.message}` }));
+      }
+    });
+    return;
+  }
+
   // Static File Serving
   const parsedUrl = req.url.split('?')[0];
   let filePath = parsedUrl;
@@ -2284,6 +2453,8 @@ const server = http.createServer((req, res) => {
     filePath = '/index.html';
   } else if (filePath === '/admin') {
     filePath = '/admin.html';
+  } else if (filePath === '/cms') {
+    filePath = '/cms.html';
   }
   const safePath = path.normalize(filePath).replace(/^(\.\.[\/\\])+/, '');
   const absolutePath = path.join(__dirname, 'public', safePath);

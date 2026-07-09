@@ -6,7 +6,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description"
     content="Real-time uptime monitor for the aisstream.io community service. Check live status, connection errors, silent failures, and down states.">
-  <title>AISStream Uptime Monitor</title>
+  <meta name="keywords"
+    content="aisstream, aisstream.io, aisstream status, is aisstream down, aisstream uptime, websocket connection health, marine telemetry status, ais stream failure">
+  <link rel="canonical" href="https://aisuptime.buttermilkgreen.fyi/">
+  <title id="html-title">AISStream Status Page & Uptime Monitor | Is AISStream Down?</title>
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://aisuptime.buttermilkgreen.fyi/">
+  <meta property="og:title" content="AISStream Status Page & Uptime Monitor | Is AISStream Down?">
+  <meta property="og:description"
+    content="Real-time status tracking for the aisstream.io WebSocket API. View connection health, silent failure logs, and client consensus voting.">
+  <meta property="og:image" content="https://aisuptime.buttermilkgreen.fyi/og-image.png">
+
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image">
+  <meta property="twitter:url" content="https://aisuptime.buttermilkgreen.fyi/">
+  <meta property="twitter:title" content="AISStream Status Page & Uptime Monitor | Is AISStream Down?">
+  <meta property="twitter:description"
+    content="Real-time status tracking for the aisstream.io WebSocket API. View connection health, silent failure logs, and client consensus voting.">
+  <meta property="twitter:image" content="https://aisuptime.buttermilkgreen.fyi/og-image.png">
 
   <!-- Premium Font -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -26,13 +45,18 @@
         <p class="logo-subtitle">Unofficial uptime monitor</p>
       </div>
       <div class="header-buttons">
-        <a href="https://github.com/aisstream/issues/issues" class="btn" id="btn-subscribe" target="_blank" rel="noopener noreferrer">
-          <svg class="btn-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true" style="margin-right: 6px; display: inline-block; vertical-align: text-bottom;">
-            <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.35 3.12.88.01.47.01.84.01.93 0 .22-.16.47-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path>
+        <a href="https://github.com/aisstream/issues/issues" class="btn" id="btn-subscribe" target="_blank"
+          rel="noopener noreferrer">
+          <svg class="btn-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"
+            style="margin-right: 6px; display: inline-block; vertical-align: text-bottom;">
+            <path
+              d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.35 3.12.88.01.47.01.84.01.93 0 .22-.16.47-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z">
+            </path>
           </svg>
           AISStream Github Issues
         </a>
-        <a href="https://github.com/buttermilkgreen/AISStream-Uptime" class="btn" id="btn-support" target="_blank" rel="noopener noreferrer">API Docs</a>
+        <a href="https://github.com/buttermilkgreen/AISStream-Uptime" class="btn" id="btn-support" target="_blank"
+          rel="noopener noreferrer">API Docs</a>
       </div>
     </header>
 
@@ -110,13 +134,95 @@
         </div>
       </section>
 
+      <!-- CMS-backed Information and FAQ Sections (SEO & AIO Optimized) -->
+      <section class="info-section">
+        <div class="info-card">
+          <h2 id="about-title">About AISStream</h2>
+          <p id="about-text">The aisstream.io service provides real-time access to global AIS (Automatic Identification
+            System) vessel telemetry data via a developer-friendly WebSocket interface. This unofficial status page
+            monitors the streaming endpoint's availability and stability.</p>
+        </div>
 
+        <div class="info-card">
+          <h2 id="states-title">Understanding Connection States</h2>
+          <div class="states-grid">
+            <div class="state-explain-item">
+              <span class="state-explain-badge state-up">Operational</span>
+              <p id="state-explain-up">Connected and receiving ship positions in real-time.</p>
+            </div>
+            <div class="state-explain-item">
+              <span class="state-explain-badge state-silent">Silent Failure</span>
+              <p id="state-explain-silent">The WebSocket connection is active, but no AIS shipping messages have been
+                received for a prolonged period.</p>
+            </div>
+            <div class="state-explain-item">
+              <span class="state-explain-badge state-auth">Auth Error</span>
+              <p id="state-explain-auth">The monitoring daemon failed to authenticate. This typically indicates an
+                expired or invalid API key.</p>
+            </div>
+            <div class="state-explain-item">
+              <span class="state-explain-badge state-down">Down</span>
+              <p id="state-explain-down">The stream endpoint is completely unreachable or offline.</p>
+            </div>
+          </div>
+        </div>
 
+        <div class="info-card">
+          <h2 id="api-check-title">Programmatic API Status Check</h2>
+          <p>You can fetch real-time monitoring health status in JSON format by making an HTTP GET request:</p>
+          <div class="code-block-wrapper">
+            <pre><code>GET https://aisuptime.buttermilkgreen.fyi/api/v1/status?simple=true</code></pre>
+          </div>
+          <a href="https://github.com/buttermilkgreen/AISStream-Uptime" class="btn" id="btn-subscribe"
+            target="_blank">API
+            Docs</a>
+        </div>
+
+        <div class="info-card faq-card">
+          <h2>Frequently Asked Questions</h2>
+          <div id="faq-accordion-container" class="faq-accordion">
+            <details class="faq-item" open>
+              <summary id="faq-1-q">Is AISStream down right now?</summary>
+              <div class="faq-answer-content">
+                <p id="faq-1-a">You can check the live status at the top of this dashboard. The monitor verifies
+                  connection status every 30 seconds.</p>
+              </div>
+            </details>
+            <details class="faq-item">
+              <summary id="faq-2-q">What causes a Silent Failure?</summary>
+              <div class="faq-answer-content">
+                <p id="faq-2-a">A Silent Failure occurs when the WebSocket connection is successfully established,
+                  but
+                  no actual marine vessel position reports are received. This is often caused by database
+                  bottlenecks or
+                  upstream parser delays on the service provider side.</p>
+              </div>
+            </details>
+            <details class="faq-item">
+              <summary id="faq-3-q">How do I query the status endpoint programmatically?</summary>
+              <div class="faq-answer-content">
+                <p id="faq-3-a">You can fetch the JSON status at `/api/v1/status?simple=true`. A standard JSON
+                  response
+                  containing the current state, last checked timestamp, and last message received timestamp is
+                  returned.
+                </p>
+              </div>
+            </details>
+            <details class="faq-item">
+              <summary id="faq-4-q">Who maintains this status monitor?</summary>
+              <div class="faq-answer-content">
+                <p id="faq-4-a">This uptime monitor is an unofficial community-maintained service built by
+                  Buttermilkgreen. It is not affiliated with the official aisstream.io developers.</p>
+              </div>
+            </details>
+          </div>
+        </div>
+      </section>
     </main>
 
     <footer class="app-footer" id="app-footer">
-      <p>AISStream Uptime Monitor &bull; <a
-          href="https://github.com/buttermilkgreen/" target="_blank">Buttermilkgreen</a></p>
+      <p>AISStream Uptime Monitor &bull; <a href="https://github.com/buttermilkgreen/"
+          target="_blank">Buttermilkgreen</a></p>
     </footer>
   </div>
 
