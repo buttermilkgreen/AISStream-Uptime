@@ -84,6 +84,7 @@ const SILENCE_TO_DOWN_TIMEOUT = parseInt(process.env.SILENCE_TO_DOWN_TIMEOUT_SEC
 const FLAP_PROTECTION_WINDOW = parseInt(process.env.FLAP_PROTECTION_WINDOW_SECONDS, 10) || 120;
 const RATE_LIMIT_RPM = parseInt(process.env.API_RATE_LIMIT_RPM, 10) || 60;
 const CACHE_TTL_SECONDS = parseInt(process.env.API_CACHE_TTL_SECONDS, 10) || 15;
+let cmsCache = {};
 let simulatedModeActive = false;
 let simulatedStaleActive = false;
 const serverStartTime = new Date().toISOString();
@@ -548,7 +549,15 @@ db.serialize(() => {
       { key: 'faq.3.q', value: 'How do I query the status endpoint programmatically?', group_id: 'faqs', label: 'FAQ 3 Question', type: 'text', help_text: 'Question header for FAQ item 3.' },
       { key: 'faq.3.a', value: 'You can fetch the JSON status at `/api/v1/status?simple=true`. A standard JSON response containing the current state, last checked timestamp, and last message received timestamp is returned.', group_id: 'faqs', label: 'FAQ 3 Answer', type: 'textarea', help_text: 'Answer content body for FAQ item 3.' },
       { key: 'faq.4.q', value: 'Who maintains this status monitor?', group_id: 'faqs', label: 'FAQ 4 Question', type: 'text', help_text: 'Question header for FAQ item 4.' },
-      { key: 'faq.4.a', value: 'This uptime monitor is an unofficial community-maintained service built by Buttermilkgreen. It is not affiliated with the official aisstream.io developers.', group_id: 'faqs', label: 'FAQ 4 Answer', type: 'textarea', help_text: 'Answer content body for FAQ item 4.' }
+      { key: 'faq.4.a', value: 'This uptime monitor is an unofficial community-maintained service built by Buttermilkgreen. It is not affiliated with the official aisstream.io developers.', group_id: 'faqs', label: 'FAQ 4 Answer', type: 'textarea', help_text: 'Answer content body for FAQ item 4.' },
+
+      { key: 'history.auth_title', value: 'Authentication Failure', group_id: 'general', label: 'History Auth Incident Heading', type: 'text', help_text: 'Outage title shown in history list when an authentication error occurs.' },
+      { key: 'history.auth_desc', value: 'Authentication failure: The provided API key is invalid or rejected by the server.', group_id: 'general', label: 'History Auth Incident Description', type: 'textarea', help_text: 'Timeline description template used when an authentication error occurs.' },
+      { key: 'history.down_title', value: 'Complete Loss of Service', group_id: 'general', label: 'History Down Incident Heading', type: 'text', help_text: 'Outage title shown in history list when connection is lost.' },
+      { key: 'history.down_desc', value: 'Connection dropped or unreachable.', group_id: 'general', label: 'History Down Incident Description', type: 'textarea', help_text: 'Timeline description template used when connection drops.' },
+      { key: 'history.silent_title', value: 'Silent Failure: Connected but No Data Received', group_id: 'general', label: 'History Silent Incident Heading', type: 'text', help_text: 'Outage title shown in history list when stream is connected but silent.' },
+      { key: 'history.silent_desc', value: 'Connection established but no ship data received for {duration} (since {since}).', group_id: 'general', label: 'History Silent Incident Description', type: 'textarea', help_text: 'Timeline description template used during silent failure stream inactivity. Supports {duration} and {since}.' },
+      { key: 'history.silent_resolution', value: 'No message received for {duration}.', group_id: 'general', label: 'History Silent Resolution Description', type: 'textarea', help_text: 'Timeline description template used for silent failure resolution. Supports {duration}.' }
     ];
  
     db.serialize(() => {
@@ -571,6 +580,7 @@ db.serialize(() => {
           seeds.forEach(s => {
             db.run("UPDATE cms_content SET help_text = ? WHERE key = ? AND help_text IS NULL", [s.help_text, s.key]);
           });
+          loadCmsCache();
         }
       });
     });
@@ -611,6 +621,17 @@ db.all("SELECT id, start_time, outage_type FROM incidents WHERE end_time IS NULL
   }
 });
 
+function loadCmsCache(callback) {
+  db.all("SELECT key, value FROM cms_content", (err, rows) => {
+    if (!err && rows) {
+      rows.forEach(r => {
+        cmsCache[r.key] = r.value;
+      });
+    }
+    if (callback) callback(err);
+  });
+}
+
 // 4. Uptime State variables and Heartbeat History (30 minutes)
 let currentStatus = {
   state: "Pending", // Starts as pending status until connection established
@@ -632,7 +653,7 @@ function interpretError(detailsObj) {
 
   // 1. Auth Failures
   if (rawStr.includes("1008") || rawStr.includes("auth") || rawStr.includes("key") || msg.toLowerCase().includes("key")) {
-    return "Authentication failure: The provided API key is invalid or rejected by the server.";
+    return cmsCache['history.auth_desc'] || "Authentication failure: The provided API key is invalid or rejected by the server.";
   }
 
   // 2. Service-level gateway issues
@@ -660,12 +681,27 @@ function interpretError(detailsObj) {
     return "Connection refused - The server port is closed or offline.";
   }
 
-  // 4. Inactivity
+  // 4. Inactivity & Silent Failures
   if (msg.includes("No message received")) {
+    const match = msg.match(/No message received for (.*)\./);
+    if (match && match[1]) {
+      const duration = match[1];
+      const template = cmsCache['history.silent_resolution'] || "No message received for {duration}.";
+      return template.replace('{duration}', duration);
+    }
     return msg;
   }
 
-  return msg || "Connection dropped or unreachable.";
+  if (msg.includes("Connection established but no ship data")) {
+    const match = msg.match(/Connection established but no ship data received for (.*)\./);
+    if (match && match[1]) {
+      const duration = match[1];
+      const template = cmsCache['history.silent_desc'] || "Connection established but no ship data received for {duration} (since {since}).";
+      return template.replace('{duration}', duration);
+    }
+  }
+
+  return cmsCache['history.down_desc'] || msg || "Connection dropped or unreachable.";
 }
 
 /**
@@ -1217,7 +1253,6 @@ function scheduleReconnect(customDelayMs = null) {
  */
 function startSilenceCheck() {
   if (silenceCheckInterval) clearInterval(silenceCheckInterval);
-
   silenceCheckInterval = setInterval(() => {
     if (simulatedModeActive) return;
     if (wsClient && wsClient.readyState === WebSocket.OPEN) {
@@ -1226,28 +1261,24 @@ function startSilenceCheck() {
 
       const secondsSinceLastMessage = (Date.now() - checkStartTime) / 1000;
 
-      if (secondsSinceLastMessage > SILENCE_TO_DOWN_TIMEOUT) {
+      if (secondsSinceLastMessage > SILENCE_TIMEOUT) {
         const friendlyDuration = formatDuration(secondsSinceLastMessage);
         const detailedMsg = `Connection established but no ship data received for ${friendlyDuration}.`;
         const oldState = currentStatus.state;
         const now = Date.now();
 
-        if (oldState !== "Down" || now - lastIncidentUpdateTime >= 60000) {
-          logEvent(`Escalating to Down: ${detailedMsg}`, "error");
-          updateState("Down", {
-            message: detailedMsg,
-            raw: {
-              secondsSinceLastMessage,
-              checkStartTime: new Date(checkStartTime).toISOString(),
-              currentTime: new Date().toISOString()
-            }
-          });
+        // If silence check exceeds SILENCE_TO_DOWN_TIMEOUT, escalate active incident type in DB,
+        // but keep the user-facing status state as "Silent Failure" because WebSocket is OPEN.
+        if (secondsSinceLastMessage > SILENCE_TO_DOWN_TIMEOUT) {
+          if (activeIncidentId !== null) {
+            db.get("SELECT outage_type FROM incidents WHERE id = ?", [activeIncidentId], (err, row) => {
+              if (!err && row && row.outage_type === "Silent Failure") {
+                logEvent(`Prolonged Silent Failure: Escalate incident #${activeIncidentId} to Service Outage in database.`, "warning");
+                db.run("UPDATE incidents SET outage_type = 'Service Outage' WHERE id = ?", [activeIncidentId]);
+              }
+            });
+          }
         }
-      } else if (secondsSinceLastMessage > SILENCE_TIMEOUT) {
-        const friendlyDuration = formatDuration(secondsSinceLastMessage);
-        const detailedMsg = `Connection established but no ship data received for ${friendlyDuration}.`;
-        const oldState = currentStatus.state;
-        const now = Date.now();
 
         if (oldState !== "Silent Failure" || now - lastIncidentUpdateTime >= 60000) {
           logEvent(`Silent Failure detected: ${detailedMsg}`, "warning");
@@ -1305,6 +1336,7 @@ function sendSimpleStatusResponse(res) {
     state: currentStatus.state,
     lastChecked: currentStatus.lastChecked,
     lastMessageReceived: currentStatus.lastMessageReceived,
+    websocketConnected: (wsClient && wsClient.readyState === WebSocket.OPEN) || false,
     simulated: simulatedModeActive,
     simulatedStale: simulatedStaleActive
   }));
@@ -1581,6 +1613,7 @@ const server = http.createServer((req, res) => {
           state: currentStatus.state,
           lastChecked: currentStatus.lastChecked,
           lastMessageReceived: currentStatus.lastMessageReceived,
+          websocketConnected: (wsClient && wsClient.readyState === WebSocket.OPEN) || false,
           history: slots,
           devMode: isDevMode,
           simulated: simulatedModeActive,
@@ -2453,6 +2486,7 @@ const server = http.createServer((req, res) => {
               return;
             }
             logEvent(`CMS content updated by admin from ${clientIp}.`, "success");
+            loadCmsCache();
             invalidateCache();
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true, message: 'CMS content updated successfully.' }));

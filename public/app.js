@@ -297,6 +297,7 @@ const statusBannerTitle = document.getElementById('status-banner-title');
 const statusBannerDesc = document.getElementById('status-banner-desc');
 const componentStatus = document.getElementById('component-status');
 const lastCheckedEl = document.getElementById('last-checked');
+const wsConnectionStateEl = document.getElementById('ws-connection-state');
 const heartbeatContainer = document.getElementById('heartbeat-container');
 const historyContainer = document.getElementById('history-container');
 
@@ -305,8 +306,11 @@ const historyContainer = document.getElementById('history-container');
  * Update the UI based on the returned or calculated state.
  * @param {string} state - The status state
  * @param {string} lastChecked - Timestamp of the check
+ * @param {number} silenceTimeout - Silence timeout limit
+ * @param {object} activeIncident - Current active incident
+ * @param {boolean} websocketConnected - Whether websocket is connected
  */
-function updateUI(state, lastChecked, silenceTimeout, activeIncident) {
+function updateUI(state, lastChecked, silenceTimeout, activeIncident, websocketConnected) {
   const config = STATE_CONFIGS[state] || {
     className: 'state-loading',
     statusTitle: 'Checking Status...',
@@ -365,6 +369,19 @@ function updateUI(state, lastChecked, silenceTimeout, activeIncident) {
     lastCheckedEl.textContent = timeString;
   } else {
     lastCheckedEl.textContent = 'Unknown';
+  }
+ 
+  if (wsConnectionStateEl) {
+    if (websocketConnected === true || state === 'Up') {
+      wsConnectionStateEl.textContent = 'Connected';
+      wsConnectionStateEl.style.color = '#10b981'; // Green
+    } else if (websocketConnected === false || state === 'Down' || state === 'Auth Error') {
+      wsConnectionStateEl.textContent = 'Disconnected';
+      wsConnectionStateEl.style.color = '#ef4444'; // Red
+    } else {
+      wsConnectionStateEl.textContent = 'Connecting...';
+      wsConnectionStateEl.style.color = '#eab308'; // Orange/Yellow
+    }
   }
 
   currentBannerState = state;
@@ -508,6 +525,7 @@ function renderIncidentHistory(incidents) {
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const today = new Date();
   const targetMonths = [];
+  const cms = window.cmsCopy || {};
   let totalIncidentsCount = 0;
 
   // Initialize the list for the last 4 calendar months (only from June 2026 onwards)
@@ -538,15 +556,15 @@ function renderIncidentHistory(incidents) {
       const dayName = days[start.getDay()];
 
       const stateTitleMap = {
-        'Down': 'Complete Loss of Service',
-        'Silent Failure': 'Silent Failure: Connected but No Data Received',
-        'Service Outage': 'Complete Loss of Service',
-        'Auth Error': 'Authentication Failure'
+        'Down': cms['history.down_title'] || 'Complete Loss of Service',
+        'Silent Failure': cms['history.silent_title'] || 'Silent Failure: Connected but No Data Received',
+        'Service Outage': cms['history.down_title'] || 'Complete Loss of Service',
+        'Auth Error': cms['history.auth_title'] || 'Authentication Failure'
       };
       let title = stateTitleMap[inc.outage_type] || inc.outage_type;
-      let description = "No further details logged.";
+      let description = inc.admin_notes || "No further details logged.";
       let errorsTimeline = null;
-      if (inc.details) {
+      if (!inc.admin_notes && inc.details) {
         try {
           const parsed = JSON.parse(inc.details);
           if (parsed) {
@@ -558,6 +576,13 @@ function renderIncidentHistory(incidents) {
             } else if (parsed.message) {
               description = parsed.message;
             }
+          }
+        } catch (e) { }
+      } else if (inc.details) {
+        try {
+          const parsed = JSON.parse(inc.details);
+          if (parsed && parsed.errors) {
+            errorsTimeline = parsed.errors;
           }
         } catch (e) { }
       }
@@ -685,6 +710,14 @@ function renderIncidentHistory(incidents) {
             const rawMessage = event.message || 'No description';
             const displayMessage = rawMessage.length > 140 ? rawMessage.substring(0, 137) + '...' : rawMessage;
 
+            const typeBadgeMap = {
+              'Auth Error': cms['state.auth.badge'] || 'Auth Error',
+              'Silent Failure': cms['state.silent.badge'] || 'Silent Failure',
+              'Down': cms['state.down.badge'] || 'Down',
+              'Pending': cms['state.pending.badge'] || 'Pending'
+            };
+            const badgeText = typeBadgeMap[event.type] || event.type;
+
             return `
                     <div class="timeline-event-item">
                       <div class="timeline-event-dot ${event.type.replace(/\s+/g, '-')}"></div>
@@ -694,7 +727,7 @@ function renderIncidentHistory(incidents) {
                             ${eventTime}
                             ${inc.isLongerThanADay ? `<span class="timeline-event-date" style="font-size: 0.7rem; color: #6b7280; margin-left: 6px; font-weight: normal; background: rgba(107, 114, 128, 0.08); padding: 1px 4px; border-radius: 3px;">${eventDateFriendly}</span>` : ''}
                           </span>
-                          <span class="timeline-event-type-badge ${event.type.replace(/\s+/g, '-')}">${event.type}</span>
+                          <span class="timeline-event-type-badge ${event.type.replace(/\s+/g, '-')}">${badgeText}</span>
                         </div>
                         <div class="timeline-event-msg">${escapeHtml(displayMessage)}</div>
                         
@@ -908,7 +941,7 @@ async function fetchStatus() {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     const data = await response.json();
-    updateUI(data.state, data.lastChecked, data.silenceTimeout, data.activeIncident);
+    updateUI(data.state, data.lastChecked, data.silenceTimeout, data.activeIncident, data.websocketConnected);
     renderHeartbeat(data.history);
 
     // Dev HUD visibility
@@ -925,7 +958,7 @@ async function fetchStatus() {
     }
   } catch (error) {
     console.error('Failed to fetch status:', error);
-    updateUI('Down', new Date().toISOString());
+    updateUI('Down', new Date().toISOString(), null, null, false);
     const offlineHistory = Array.from({ length: 30 }, (_, i) => ({
       timestamp: new Date(Date.now() - (29 - i) * 60000).toISOString(),
       state: 'Down'
@@ -1214,6 +1247,7 @@ async function fetchCMS() {
     data.forEach(item => {
       cms[item.key] = item.value;
     });
+    window.cmsCopy = cms;
 
     // 1. Hydrate Site Copy
     const titleEl = document.getElementById('html-title');

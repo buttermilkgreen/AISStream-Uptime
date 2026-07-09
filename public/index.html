@@ -121,8 +121,9 @@
         <!-- Heartbeat Container (30-minute interval statuses for the last 24 hours) -->
         <div id="heartbeat-container" class="heartbeat-container"></div>
 
-        <div class="uptime-meta">
+        <div class="uptime-meta" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
           <span>Last checked: <span id="last-checked">Never</span></span>
+          <span>WebSocket status: <span id="ws-connection-state" style="font-weight: 600;">Checking...</span></span>
         </div>
       </div>
 

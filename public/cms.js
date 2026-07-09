@@ -30,6 +30,8 @@ document.addEventListener('DOMContentLoaded', () => {
         activePane.classList.add('active');
         activePane.style.display = 'flex';
       }
+
+
     });
   });
 
@@ -132,10 +134,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const tabGeneral = document.getElementById('tab-general-fields');
     const tabStates = document.getElementById('tab-states-fields');
     const tabFaqs = document.getElementById('tab-faqs-fields');
+    const tabHistory = document.getElementById('tab-history-fields');
 
     tabGeneral.innerHTML = '';
     tabStates.innerHTML = '';
     tabFaqs.innerHTML = '';
+    if (tabHistory) tabHistory.innerHTML = '';
+
+    const historyTabElements = [];
 
     // Sub-group elements for the general tab to keep things structured
     const generalGroups = {
@@ -207,7 +213,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       // Distribute to corresponding tabs
-      if (item.group_id === 'general') {
+      if (item.key.startsWith('history.')) {
+        historyTabElements.push(formGroup);
+      } else if (item.group_id === 'general') {
         let matchedGroup = 'Main Site Branding';
         if (item.key === 'site.about_title' || item.key === 'site.about_text') {
           matchedGroup = 'About Section Content';
@@ -278,6 +286,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         elements.forEach(el => tabStates.appendChild(el));
       }
+    }
+
+    if (tabHistory) {
+      historyTabElements.forEach(el => tabHistory.appendChild(el));
     }
   }
 
@@ -353,6 +365,8 @@ document.addEventListener('DOMContentLoaded', () => {
       saveStatusMsg.style.opacity = '0';
     }, 4000);
   }
+
+
 
   // Auto trigger check
   checkAuthAndLoad();

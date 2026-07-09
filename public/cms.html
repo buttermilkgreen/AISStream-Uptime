@@ -48,6 +48,7 @@
           <button class="cms-tab-btn active" data-tab="general">General Info & Branding</button>
           <button class="cms-tab-btn" data-tab="states">Status Indicators</button>
           <button class="cms-tab-btn" data-tab="faqs">FAQs</button>
+          <button class="cms-tab-btn" data-tab="history">Outage History</button>
         </div>
 
         <form id="cms-form" style="display: flex; flex-direction: column; gap: 1.5rem;">
@@ -73,6 +74,17 @@
           <!-- FAQs Tab -->
           <div id="tab-faqs" class="tab-pane" style="display: none; flex-direction: column; gap: 1.25rem;">
             <div id="tab-faqs-fields" style="display: flex; flex-direction: column; gap: 1.25rem;"></div>
+          </div>
+
+          <!-- Outage History Tab -->
+          <div id="tab-history" class="tab-pane" style="display: none; flex-direction: column; gap: 1.25rem;">
+            <div class="cms-helper-note" style="padding: 0.85rem 1.15rem; background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #64748b; border-radius: 6px; font-size: 0.875rem; color: #475569; line-height: 1.5; font-family: inherit;">
+              <span style="font-weight: 700; display: block; margin-bottom: 0.25rem;">⏳ Default Outage Log Templates (History):</span>
+              Customize the default titles and descriptions generated and recorded when new incidents are created in the history log.
+            </div>
+            <div id="tab-history-fields" style="display: flex; flex-direction: column; gap: 1.25rem;">
+              <!-- Loaded dynamically via JS -->
+            </div>
           </div>
 
           <!-- Action bar -->
