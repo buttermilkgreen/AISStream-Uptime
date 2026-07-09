@@ -81,6 +81,7 @@ const AISSTREAM_WS_URL = process.env.AISSTREAM_WS_URL || "wss://stream.aisstream
 const isDevMode = process.env.NODE_ENV === 'DEV' || process.env.DEV === 'true';
 const SILENCE_TIMEOUT = parseInt(process.env.SILENCE_TIMEOUT_SECONDS, 10) || 15;
 const SILENCE_TO_DOWN_TIMEOUT = parseInt(process.env.SILENCE_TO_DOWN_TIMEOUT_SECONDS, 10) || 1800;
+const FLAP_PROTECTION_WINDOW = parseInt(process.env.FLAP_PROTECTION_WINDOW_SECONDS, 10) || 120;
 const RATE_LIMIT_RPM = parseInt(process.env.API_RATE_LIMIT_RPM, 10) || 60;
 const CACHE_TTL_SECONDS = parseInt(process.env.API_CACHE_TTL_SECONDS, 10) || 15;
 let simulatedModeActive = false;
@@ -490,60 +491,70 @@ db.serialize(() => {
       value TEXT NOT NULL,
       group_id TEXT NOT NULL,
       label TEXT NOT NULL,
-      type TEXT NOT NULL DEFAULT 'text'
+      type TEXT NOT NULL DEFAULT 'text',
+      help_text TEXT
     )
   `, (err) => {
     if (err) {
       console.error("Error creating cms_content table:", err.message);
       return;
     }
+
+    // Add help_text column if migrating from older schema version
+    db.run("ALTER TABLE cms_content ADD COLUMN help_text TEXT", (alterErr) => {
+      // Ignore if column already exists
+    });
     
     // Seed default CMS content if not already seeded
     const seeds = [
-      { key: 'site.title', value: 'AISStream Status Page & Uptime Monitor | Is AISStream Down?', group_id: 'general', label: 'Site Title', type: 'text' },
-      { key: 'site.subtitle', value: 'Unofficial uptime monitor', group_id: 'general', label: 'Site Subtitle', type: 'text' },
-      { key: 'site.about_title', value: 'About AISStream', group_id: 'general', label: 'About Section Title', type: 'text' },
-      { key: 'site.about_text', value: 'The aisstream.io service provides real-time access to global AIS (Automatic Identification System) vessel telemetry data via a developer-friendly WebSocket interface. This unofficial status page monitors the streaming endpoint\'s availability and stability.', group_id: 'general', label: 'About Description', type: 'textarea' },
-      { key: 'site.states_title', value: 'Understanding Connection States', group_id: 'general', label: 'States Section Title', type: 'text' },
-      { key: 'site.state_up_desc', value: 'Connected and receiving ship positions in real-time.', group_id: 'states', label: 'Up State Description text', type: 'textarea' },
-      { key: 'site.state_silent_desc', value: 'The WebSocket connection is active, but no AIS shipping messages have been received for a prolonged period.', group_id: 'states', label: 'Silent Failure Description text', type: 'textarea' },
-      { key: 'site.state_auth_desc', value: 'The monitoring daemon failed to authenticate. This typically indicates an expired or invalid API key.', group_id: 'states', label: 'Auth Error Description text', type: 'textarea' },
-      { key: 'site.state_down_desc', value: 'The stream endpoint is completely unreachable or offline.', group_id: 'states', label: 'Down State Description text', type: 'textarea' },
-      { key: 'site.api_check_title', value: 'Programmatic API Status Check', group_id: 'general', label: 'API Check Title', type: 'text' },
-      { key: 'site.footer', value: 'AISStream Uptime Monitor • Buttermilkgreen', group_id: 'general', label: 'Footer Text', type: 'text' },
+      { key: 'site.title', value: 'AISStream Status Page & Uptime Monitor | Is AISStream Down?', group_id: 'general', label: 'Site Title', type: 'text', help_text: 'The primary title of the web app, shown in the browser tab and search previews.' },
+      { key: 'site.subtitle', value: 'Unofficial uptime monitor', group_id: 'general', label: 'Site Subtitle', type: 'text', help_text: 'Subtitle text shown in the header directly below the main title.' },
+      { key: 'site.about_title', value: 'About AISStream', group_id: 'general', label: 'About Section Title', type: 'text', help_text: 'Title of the informational About card.' },
+      { key: 'site.about_text', value: 'The aisstream.io service provides real-time access to global AIS (Automatic Identification System) vessel telemetry data via a developer-friendly WebSocket interface. This unofficial status page monitors the streaming endpoint\'s availability and stability.', group_id: 'general', label: 'About Description', type: 'textarea', help_text: 'Main body copy describing the stream monitor service and its purpose.' },
+      { key: 'site.states_title', value: 'Understanding Connection States', group_id: 'general', label: 'States Section Title', type: 'text', help_text: 'Title of the connection states explanation section.' },
+      { key: 'site.state_up_desc', value: 'Connected and receiving ship positions in real-time.', group_id: 'general', label: 'Up State Description text', type: 'textarea', help_text: 'Description shown in the connection states reference card at the bottom of the page when the stream is healthy.' },
+      { key: 'site.state_silent_desc', value: 'The WebSocket connection is active, but no AIS shipping messages have been received for a prolonged period.', group_id: 'general', label: 'Silent Failure Description text', type: 'textarea', help_text: 'Description shown in the connection states reference card at the bottom of the page when the stream is silent.' },
+      { key: 'site.state_auth_desc', value: 'The monitoring daemon failed to authenticate. This typically indicates an expired or invalid API key.', group_id: 'general', label: 'Auth Error Description text', type: 'textarea', help_text: 'Description shown in the connection states reference card at the bottom of the page when authentication fails.' },
+      { key: 'site.state_down_desc', value: 'The stream endpoint is completely unreachable or offline.', group_id: 'general', label: 'Down State Description text', type: 'textarea', help_text: 'Description shown in the connection states reference card at the bottom of the page when connection is lost.' },
+      { key: 'site.api_check_title', value: 'Programmatic API Status Check', group_id: 'general', label: 'API Check Title', type: 'text', help_text: 'Title of the programmatic status check guide block.' },
+      { key: 'site.footer', value: 'AISStream Uptime Monitor • Buttermilkgreen', group_id: 'general', label: 'Footer Text', type: 'text', help_text: 'Copyright/attribution text shown at the bottom of the page.' },
       
-      { key: 'state.up.title', value: 'Fully Operational', group_id: 'states', label: 'Up State Banner Title', type: 'text' },
-      { key: 'state.up.desc', value: 'No known issues', group_id: 'states', label: 'Up State Banner Description', type: 'textarea' },
-      { key: 'state.up.badge', value: 'Operational', group_id: 'states', label: 'Up State Badge Text', type: 'text' },
-      { key: 'state.silent.title', value: 'Partial Outage', group_id: 'states', label: 'Silent Banner Title', type: 'text' },
-      { key: 'state.silent.desc', value: 'The WebSocket connection is open, but no messages have arrived in the last {seconds} seconds.', group_id: 'states', label: 'Silent Banner Description', type: 'textarea' },
-      { key: 'state.silent.active_desc', value: 'Connection established but no ship data received for {duration} (since {since}).', group_id: 'states', label: 'Silent Active Outage Description', type: 'textarea' },
-      { key: 'state.silent.badge', value: 'Silent Failure', group_id: 'states', label: 'Silent Badge Text', type: 'text' },
-      { key: 'state.auth.title', value: 'Configuration Alert', group_id: 'states', label: 'Auth Banner Title', type: 'text' },
-      { key: 'state.auth.desc', value: 'Connection rejected or closed by the server. Please verify your API Key is valid.', group_id: 'states', label: 'Auth Banner Description', type: 'textarea' },
-      { key: 'state.auth.badge', value: 'Auth Error', group_id: 'states', label: 'Auth Badge Text', type: 'text' },
-      { key: 'state.down.title', value: 'Major Outage', group_id: 'states', label: 'Down Banner Title', type: 'text' },
-      { key: 'state.down.desc', value: 'The connection to the AISStream server has been lost, or the service is currently unreachable.', group_id: 'states', label: 'Down Banner Description', type: 'textarea' },
-      { key: 'state.down.active_desc', value: 'The connection to the AISStream server has been lost, and no ship data has been received for {duration} (since {since}).', group_id: 'states', label: 'Down Active Outage Description', type: 'textarea' },
-      { key: 'state.down.badge', value: 'Major Outage', group_id: 'states', label: 'Down Badge Text', type: 'text' },
-      { key: 'state.pending.title', value: 'Connecting...', group_id: 'states', label: 'Pending Banner Title', type: 'text' },
-      { key: 'state.pending.desc', value: 'Establishing WebSocket connection and awaiting initial ship data.', group_id: 'states', label: 'Pending Banner Description', type: 'textarea' },
-      { key: 'state.pending.badge', value: 'Pending', group_id: 'states', label: 'Pending Badge Text', type: 'text' },
+      { key: 'state.up.title', value: 'Fully Operational', group_id: 'states', label: 'Up State Banner Title', type: 'text', help_text: 'The heading text inside the top status banner when the connection is healthy.' },
+      { key: 'state.up.desc', value: 'No known issues', group_id: 'states', label: 'Up State Banner Description', type: 'textarea', help_text: 'Description text shown inside the top status banner when the connection is healthy.' },
+      { key: 'state.up.badge', value: 'Operational', group_id: 'states', label: 'Up State Badge Text', type: 'text', help_text: 'Pill status badge text shown in the main dashboard component card.' },
+      
+      { key: 'state.silent.title', value: 'Partial Outage', group_id: 'states', label: 'Silent Banner Title', type: 'text', help_text: 'The heading text inside the top status banner when stream is silent.' },
+      { key: 'state.silent.desc', value: 'The WebSocket connection is open, but no messages have arrived in the last {seconds} seconds.', group_id: 'states', label: 'Silent Banner Description', type: 'textarea', help_text: 'Temporary description shown in the top banner during transient check-ins before an outage is officially saved. Supports {seconds}.' },
+      { key: 'state.silent.active_desc', value: 'Connection established but no ship data received for {duration} (since {since}).', group_id: 'states', label: 'Silent Active Outage Description', type: 'textarea', help_text: 'Outage description shown in the top banner once a Silent Failure is saved in the database. Supports {duration} and {since}.' },
+      { key: 'state.silent.badge', value: 'Silent Failure', group_id: 'states', label: 'Silent Badge Text', type: 'text', help_text: 'Pill status badge text shown in the main dashboard component card.' },
+      
+      { key: 'state.auth.title', value: 'Configuration Alert', group_id: 'states', label: 'Auth Banner Title', type: 'text', help_text: 'The heading text inside the top status banner when authentication fails.' },
+      { key: 'state.auth.desc', value: 'Connection rejected or closed by the server. Please verify your API Key is valid.', group_id: 'states', label: 'Auth Banner Description', type: 'textarea', help_text: 'Description text shown inside the top status banner when authentication fails.' },
+      { key: 'state.auth.badge', value: 'Auth Error', group_id: 'states', label: 'Auth Badge Text', type: 'text', help_text: 'Pill status badge text shown in the main dashboard component card.' },
+      
+      { key: 'state.down.title', value: 'Major Outage', group_id: 'states', label: 'Down Banner Title', type: 'text', help_text: 'The heading text inside the top status banner when connection is offline.' },
+      { key: 'state.down.desc', value: 'The connection to the AISStream server has been lost, or the service is currently unreachable.', group_id: 'states', label: 'Down Banner Description', type: 'textarea', help_text: 'Temporary description shown in the top banner during connection loss check-ins before an outage is officially saved.' },
+      { key: 'state.down.active_desc', value: 'The connection to the AISStream server has been lost, and no ship data has been received for {duration} (since {since}).', group_id: 'states', label: 'Down Active Outage Description', type: 'textarea', help_text: 'Outage description shown in the top banner once a Down incident is saved in the database. Supports {duration} and {since}.' },
+      { key: 'state.down.badge', value: 'Major Outage', group_id: 'states', label: 'Down Badge Text', type: 'text', help_text: 'Pill status badge text shown in the main dashboard component card.' },
+      
+      { key: 'state.pending.title', value: 'Connecting...', group_id: 'states', label: 'Pending Banner Title', type: 'text', help_text: 'The heading text inside the top status banner when connecting at boot.' },
+      { key: 'state.pending.desc', value: 'Establishing WebSocket connection and awaiting initial ship data.', group_id: 'states', label: 'Pending Banner Description', type: 'textarea', help_text: 'Description text shown inside the top status banner when connecting at boot.' },
+      { key: 'state.pending.badge', value: 'Pending', group_id: 'states', label: 'Pending Badge Text', type: 'text', help_text: 'Pill status badge text shown in the main dashboard component card when connecting.' },
  
-      { key: 'faq.1.q', value: 'Is AISStream down right now?', group_id: 'faqs', label: 'FAQ 1 Question', type: 'text' },
-      { key: 'faq.1.a', value: 'You can check the live status at the top of this dashboard. The monitor verifies connection status every 30 seconds.', group_id: 'faqs', label: 'FAQ 1 Answer', type: 'textarea' },
-      { key: 'faq.2.q', value: 'What causes a Silent Failure?', group_id: 'faqs', label: 'FAQ 2 Question', type: 'text' },
-      { key: 'faq.2.a', value: 'A Silent Failure occurs when the WebSocket connection is successfully established, but no actual marine vessel position reports are received. This is often caused by database bottlenecks or upstream parser delays on the service provider side.', group_id: 'faqs', label: 'FAQ 2 Answer', type: 'textarea' },
-      { key: 'faq.3.q', value: 'How do I query the status endpoint programmatically?', group_id: 'faqs', label: 'FAQ 3 Question', type: 'text' },
-      { key: 'faq.3.a', value: 'You can fetch the JSON status at `/api/v1/status?simple=true`. A standard JSON response containing the current state, last checked timestamp, and last message received timestamp is returned.', group_id: 'faqs', label: 'FAQ 3 Answer', type: 'textarea' },
-      { key: 'faq.4.q', value: 'Who maintains this status monitor?', group_id: 'faqs', label: 'FAQ 4 Question', type: 'text' },
-      { key: 'faq.4.a', value: 'This uptime monitor is an unofficial community-maintained service built by Buttermilkgreen. It is not affiliated with the official aisstream.io developers.', group_id: 'faqs', label: 'FAQ 4 Answer', type: 'textarea' }
+      { key: 'faq.1.q', value: 'Is AISStream down right now?', group_id: 'faqs', label: 'FAQ 1 Question', type: 'text', help_text: 'Question header for FAQ item 1.' },
+      { key: 'faq.1.a', value: 'You can check the live status at the top of this dashboard. The monitor verifies connection status every 30 seconds.', group_id: 'faqs', label: 'FAQ 1 Answer', type: 'textarea', help_text: 'Answer content body for FAQ item 1.' },
+      { key: 'faq.2.q', value: 'What causes a Silent Failure?', group_id: 'faqs', label: 'FAQ 2 Question', type: 'text', help_text: 'Question header for FAQ item 2.' },
+      { key: 'faq.2.a', value: 'A Silent Failure occurs when the WebSocket connection is successfully established, but no actual marine vessel position reports are received. This is often caused by database bottlenecks or upstream parser delays on the service provider side.', group_id: 'faqs', label: 'FAQ 2 Answer', type: 'textarea', help_text: 'Answer content body for FAQ item 2.' },
+      { key: 'faq.3.q', value: 'How do I query the status endpoint programmatically?', group_id: 'faqs', label: 'FAQ 3 Question', type: 'text', help_text: 'Question header for FAQ item 3.' },
+      { key: 'faq.3.a', value: 'You can fetch the JSON status at `/api/v1/status?simple=true`. A standard JSON response containing the current state, last checked timestamp, and last message received timestamp is returned.', group_id: 'faqs', label: 'FAQ 3 Answer', type: 'textarea', help_text: 'Answer content body for FAQ item 3.' },
+      { key: 'faq.4.q', value: 'Who maintains this status monitor?', group_id: 'faqs', label: 'FAQ 4 Question', type: 'text', help_text: 'Question header for FAQ item 4.' },
+      { key: 'faq.4.a', value: 'This uptime monitor is an unofficial community-maintained service built by Buttermilkgreen. It is not affiliated with the official aisstream.io developers.', group_id: 'faqs', label: 'FAQ 4 Answer', type: 'textarea', help_text: 'Answer content body for FAQ item 4.' }
     ];
  
     db.serialize(() => {
-      const stmt = db.prepare(`INSERT OR IGNORE INTO cms_content (key, value, group_id, label, type) VALUES (?, ?, ?, ?, ?)`);
+      const stmt = db.prepare(`INSERT OR IGNORE INTO cms_content (key, value, group_id, label, type, help_text) VALUES (?, ?, ?, ?, ?, ?)`);
       seeds.forEach(s => {
-        stmt.run(s.key, s.value, s.group_id, s.label, s.type, (seedErr) => {
+        stmt.run(s.key, s.value, s.group_id, s.label, s.type, s.help_text, (seedErr) => {
           if (seedErr) {
             console.error(`Error seeding CMS key ${s.key}:`, seedErr.message);
           }
@@ -551,10 +562,15 @@ db.serialize(() => {
       });
       stmt.finalize((finalErr) => {
         if (!finalErr) {
-          // Migrate old general state groups if database already exists
-          db.run("UPDATE cms_content SET group_id = 'states' WHERE key IN ('site.state_up_desc', 'site.state_silent_desc', 'site.state_auth_desc', 'site.state_down_desc')");
+          // Migrate old general state groups to general if database already exists
+          db.run("UPDATE cms_content SET group_id = 'general' WHERE key IN ('site.state_up_desc', 'site.state_silent_desc', 'site.state_auth_desc', 'site.state_down_desc')");
           // Migrate silent desc to use placeholder
           db.run("UPDATE cms_content SET value = 'The WebSocket connection is open, but no messages have arrived in the last {seconds} seconds.' WHERE key = 'state.silent.desc' AND value = 'The WebSocket connection is open, but no messages have arrived in the last 15 seconds.'");
+          
+          // Seed help texts on existing databases if they are empty
+          seeds.forEach(s => {
+            db.run("UPDATE cms_content SET help_text = ? WHERE key = ? AND help_text IS NULL", [s.help_text, s.key]);
+          });
         }
       });
     });
@@ -930,7 +946,7 @@ function updateState(newState, detailsObj = null) {
       const resolutionTime = new Date(lastInc.end_time).getTime();
       const secondsSinceResolution = (Date.now() - resolutionTime) / 1000;
 
-      if (secondsSinceResolution < 120) {
+      if (secondsSinceResolution < FLAP_PROTECTION_WINDOW) {
         // Re-open!
         activeIncidentId = lastInc.id;
         logEvent(`Coalescing flapping outage. Re-opening incident #${activeIncidentId} (${Math.round(secondsSinceResolution)}s since resolution)`, "warning");
@@ -2365,7 +2381,7 @@ const server = http.createServer((req, res) => {
 
   // API - Get CMS Content (Public endpoint)
   if (req.url === '/api/v1/cms' && req.method === 'GET') {
-    db.all("SELECT key, value, group_id, label, type FROM cms_content", (err, rows) => {
+    db.all("SELECT key, value, group_id, label, type, help_text FROM cms_content", (err, rows) => {
       if (err) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: err.message }));

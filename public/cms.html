@@ -53,17 +53,26 @@
         <form id="cms-form" style="display: flex; flex-direction: column; gap: 1.5rem;">
           <!-- General Branding Tab -->
           <div id="tab-general" class="tab-pane active" style="display: flex; flex-direction: column; gap: 1.25rem;">
-            <!-- Inputs dynamically populated -->
+            <div id="tab-general-fields" style="display: flex; flex-direction: column; gap: 1.25rem;"></div>
           </div>
 
           <!-- Status Indicators Tab -->
           <div id="tab-states" class="tab-pane" style="display: none; flex-direction: column; gap: 1.25rem;">
-            <!-- Inputs dynamically populated -->
+            <!-- Placeholder Guide Indicator Alert Box -->
+            <div class="cms-helper-note" style="padding: 0.85rem 1.15rem; background: #f0f9ff; border: 1px solid #bae6fd; border-left: 4px solid #0284c7; border-radius: 6px; font-size: 0.875rem; color: #0369a1; line-height: 1.5; font-family: inherit;">
+              <span style="font-weight: 700; display: block; margin-bottom: 0.25rem;">ℹ️ Status Message Dynamic Placeholders:</span>
+              You can insert placeholders in your status copy fields to render live runtime details:
+              <ul style="margin: 0.35rem 0 0 1.25rem; padding: 0;">
+                <li>Use <code>{seconds}</code> in standard descriptions (automatically replaced with your live timeout limit).</li>
+                <li>Use <code>{duration}</code> (e.g. <i>"5 minutes"</i>) and <code>{since}</code> (e.g. <i>"10:15 AM"</i>) in active outage descriptions.</li>
+              </ul>
+            </div>
+            <div id="tab-states-fields" style="display: flex; flex-direction: column; gap: 1.25rem;"></div>
           </div>
 
           <!-- FAQs Tab -->
           <div id="tab-faqs" class="tab-pane" style="display: none; flex-direction: column; gap: 1.25rem;">
-            <!-- Inputs dynamically populated -->
+            <div id="tab-faqs-fields" style="display: flex; flex-direction: column; gap: 1.25rem;"></div>
           </div>
 
           <!-- Action bar -->

@@ -91,6 +91,7 @@ The backend loads configuration settings from a local `.env` file or from the en
 * **`AISSTREAM_BOUNDING_BOXES`**: A JSON string array defining geographical bounding boxes to subscribe to (defaults to Singapore Strait: `[[[1.15, 103.6], [1.45, 104.1]]]`).
 * **`SILENCE_TIMEOUT_SECONDS`**: Inactivity period in seconds before a connected stream is marked as a `Silent Failure` (defaults to `15`).
 * **`SILENCE_TO_DOWN_TIMEOUT_SECONDS`**: Interval in seconds before escalating a `Silent Failure` to `Down` / `Service Outage` (defaults to `1800` / 30 minutes).
+* **`FLAP_PROTECTION_WINDOW_SECONDS`**: Grace period in seconds to merge rapid successive failure drops into a single continuous incident (defaults to `120`).
 * **`API_RATE_LIMIT_RPM`**: Maximum requests per minute allowed per client IP (defaults to `60`).
 * **`API_CACHE_TTL_SECONDS`**: Response caching duration in seconds for status and incident history (defaults to `15`).
 
