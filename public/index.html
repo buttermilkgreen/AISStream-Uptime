@@ -121,7 +121,8 @@
         <!-- Heartbeat Container (30-minute interval statuses for the last 24 hours) -->
         <div id="heartbeat-container" class="heartbeat-container"></div>
 
-        <div class="uptime-meta" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+        <div class="uptime-meta"
+          style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
           <span>Last checked: <span id="last-checked">Never</span></span>
           <span>WebSocket status: <span id="ws-connection-state" style="font-weight: 600;">Checking...</span></span>
         </div>
@@ -157,8 +158,8 @@
                 received for a prolonged period.</p>
             </div>
             <div class="state-explain-item">
-              <span class="state-explain-badge state-auth">Auth Error</span>
-              <p id="state-explain-auth">The monitoring daemon failed to authenticate. This typically indicates an
+              <span class="state-explain-badge state-auth">Connectivity Issue</span>
+              <p id="state-explain-auth">The monitoring service failed to connect. This typically indicates an
                 expired or invalid API key.</p>
             </div>
             <div class="state-explain-item">
