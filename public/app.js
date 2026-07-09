@@ -325,8 +325,8 @@ function updateUI(state, lastChecked, silenceTimeout, activeIncident) {
   statusBannerIcon.innerHTML = config.iconHtml;
   statusBannerTitle.textContent = config.statusTitle;
 
-  let desc = config.description;
-
+  let desc = config.description || '';
+ 
   if (activeIncident && activeIncident.start_time && (state === 'Down' || state === 'Silent Failure')) {
     const start = new Date(activeIncident.start_time);
     const startMs = start.getTime();
@@ -338,17 +338,22 @@ function updateUI(state, lastChecked, silenceTimeout, activeIncident) {
       const dateStr = start.toLocaleDateString([], { month: 'short', day: 'numeric' });
       timeString += `, ${dateStr}`;
     }
-
-    if (state === 'Silent Failure') {
-      desc = `Connection established but no ship data received for ${friendlyDuration} (since ${timeString}).`;
-    } else {
-      desc = `The connection to the AISStream server has been lost, and no ship data has been received for ${friendlyDuration} (since ${timeString}).`;
+ 
+    let activeTemplate = config.activeDescription;
+    if (!activeTemplate) {
+      if (state === 'Silent Failure') {
+        activeTemplate = "Connection established but no ship data received for {duration} (since {since}).";
+      } else {
+        activeTemplate = "The connection to the AISStream server has been lost, and no ship data has been received for {duration} (since {since}).";
+      }
     }
-  } else if (state === 'Silent Failure') {
+    desc = activeTemplate.replace('{duration}', friendlyDuration).replace('{since}', timeString);
+  } else {
+    // Process regular description placeholder (e.g. {seconds} limit)
     const limit = silenceTimeout || 15;
-    desc = `Connection established but no ship data received in the last ${limit} seconds.`;
+    desc = desc.replace('{seconds}', limit);
   }
-
+ 
   statusBannerDesc.textContent = desc;
 
   // Update Component Status Text
@@ -1270,6 +1275,7 @@ async function fetchCMS() {
       if (STATE_CONFIGS[stateName]) {
         if (cms[`${prefix}.title`]) STATE_CONFIGS[stateName].statusTitle = cms[`${prefix}.title`];
         if (cms[`${prefix}.desc`]) STATE_CONFIGS[stateName].description = cms[`${prefix}.desc`];
+        if (cms[`${prefix}.active_desc`]) STATE_CONFIGS[stateName].activeDescription = cms[`${prefix}.active_desc`];
         if (cms[`${prefix}.badge`]) STATE_CONFIGS[stateName].badgeText = cms[`${prefix}.badge`];
       }
     }

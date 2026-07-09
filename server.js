@@ -516,13 +516,15 @@ db.serialize(() => {
       { key: 'state.up.desc', value: 'No known issues', group_id: 'states', label: 'Up State Banner Description', type: 'textarea' },
       { key: 'state.up.badge', value: 'Operational', group_id: 'states', label: 'Up State Badge Text', type: 'text' },
       { key: 'state.silent.title', value: 'Partial Outage', group_id: 'states', label: 'Silent Banner Title', type: 'text' },
-      { key: 'state.silent.desc', value: 'The WebSocket connection is open, but no messages have arrived in the last 15 seconds.', group_id: 'states', label: 'Silent Banner Description', type: 'textarea' },
+      { key: 'state.silent.desc', value: 'The WebSocket connection is open, but no messages have arrived in the last {seconds} seconds.', group_id: 'states', label: 'Silent Banner Description', type: 'textarea' },
+      { key: 'state.silent.active_desc', value: 'Connection established but no ship data received for {duration} (since {since}).', group_id: 'states', label: 'Silent Active Outage Description', type: 'textarea' },
       { key: 'state.silent.badge', value: 'Silent Failure', group_id: 'states', label: 'Silent Badge Text', type: 'text' },
       { key: 'state.auth.title', value: 'Configuration Alert', group_id: 'states', label: 'Auth Banner Title', type: 'text' },
       { key: 'state.auth.desc', value: 'Connection rejected or closed by the server. Please verify your API Key is valid.', group_id: 'states', label: 'Auth Banner Description', type: 'textarea' },
       { key: 'state.auth.badge', value: 'Auth Error', group_id: 'states', label: 'Auth Badge Text', type: 'text' },
       { key: 'state.down.title', value: 'Major Outage', group_id: 'states', label: 'Down Banner Title', type: 'text' },
       { key: 'state.down.desc', value: 'The connection to the AISStream server has been lost, or the service is currently unreachable.', group_id: 'states', label: 'Down Banner Description', type: 'textarea' },
+      { key: 'state.down.active_desc', value: 'The connection to the AISStream server has been lost, and no ship data has been received for {duration} (since {since}).', group_id: 'states', label: 'Down Active Outage Description', type: 'textarea' },
       { key: 'state.down.badge', value: 'Major Outage', group_id: 'states', label: 'Down Badge Text', type: 'text' },
       { key: 'state.pending.title', value: 'Connecting...', group_id: 'states', label: 'Pending Banner Title', type: 'text' },
       { key: 'state.pending.desc', value: 'Establishing WebSocket connection and awaiting initial ship data.', group_id: 'states', label: 'Pending Banner Description', type: 'textarea' },
@@ -551,6 +553,8 @@ db.serialize(() => {
         if (!finalErr) {
           // Migrate old general state groups if database already exists
           db.run("UPDATE cms_content SET group_id = 'states' WHERE key IN ('site.state_up_desc', 'site.state_silent_desc', 'site.state_auth_desc', 'site.state_down_desc')");
+          // Migrate silent desc to use placeholder
+          db.run("UPDATE cms_content SET value = 'The WebSocket connection is open, but no messages have arrived in the last {seconds} seconds.' WHERE key = 'state.silent.desc' AND value = 'The WebSocket connection is open, but no messages have arrived in the last 15 seconds.'");
         }
       });
     });
