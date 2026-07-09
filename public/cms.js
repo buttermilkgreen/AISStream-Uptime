@@ -41,16 +41,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     try {
-      const res = await fetch('/api/v1/cms', {
+      const verifyRes = await fetch('/api/v1/admin/verify', {
+        method: 'POST',
         headers: {
           'Authorization': `Bearer ${activeToken}`
         }
       });
 
-      if (res.ok) {
-        cmsData = await res.json();
-        hideGate();
-        renderCMSForm();
+      if (verifyRes.ok) {
+        const res = await fetch('/api/v1/cms');
+        if (res.ok) {
+          cmsData = await res.json();
+          hideGate();
+          renderCMSForm();
+        } else {
+          alert('Error loading CMS content.');
+        }
       } else {
         localStorage.removeItem('admin_api_key');
         activeToken = '';
@@ -81,18 +87,24 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!key) return;
 
     try {
-      const res = await fetch('/api/v1/cms', {
+      const verifyRes = await fetch('/api/v1/admin/verify', {
+        method: 'POST',
         headers: {
           'Authorization': `Bearer ${key}`
         }
       });
 
-      if (res.ok) {
+      if (verifyRes.ok) {
         activeToken = key;
         localStorage.setItem('admin_api_key', key);
-        cmsData = await res.json();
-        hideGate();
-        renderCMSForm();
+        const res = await fetch('/api/v1/cms');
+        if (res.ok) {
+          cmsData = await res.json();
+          hideGate();
+          renderCMSForm();
+        } else {
+          alert('Error loading CMS content.');
+        }
       } else {
         alert('Invalid Admin API Key.');
       }
@@ -153,7 +165,7 @@ document.addEventListener('DOMContentLoaded', () => {
       input.id = `input-${item.key}`;
       input.className = 'cms-input';
       input.value = item.value;
-      
+
       // Standard styles matching index/admin dashboard theme
       input.style.background = '#ffffff';
       input.style.border = '1px solid var(--border-color)';

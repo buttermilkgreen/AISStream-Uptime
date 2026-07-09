@@ -12,6 +12,7 @@ The AISStream Uptime Monitor is a lightweight, low-dependency tool designed to m
 graph TD
     subgraph Client (Frontend)
         A[HTML5 Dashboard] <-->|HTTP API / Static Files| B(app.js & style.css)
+        G[CMS Dashboard] <-->|HTTP API / Static Files| H(cms.js & style.css)
     end
     subgraph Server (Backend)
         C[HTTP & API Server] <-->|Reads/Writes| D[(SQLite: uptime.db)]
@@ -27,7 +28,7 @@ graph TD
 
 The backend is built in pure Node.js without heavy frameworks (e.g., Express) to remain fast and portable. Its components are:
 
-* **Static File Server**: Delivers the static assets located in the `/public` folder.
+* **Static File Server**: Delivers the static assets located in the `/public` folder. Maps clean paths `/admin` to `admin.html` and `/cms` to `cms.html` for clean static routing.
 * **HTTP API Endpoints**:
   * `GET /api/v1/status`: Returns current system status state, last checked timestamps, rolling 30-minute heartbeat history, `devMode`, `simulated`, plus an `activeIncident` object (containing `id`, `start_time`, `admin_notes`, `admin_link`, `admin_link_text`) if there is currently an ongoing outage. Supports query parameter `?simple=true` to return only live connection metadata instantly.
   * `POST /api/v1/status`: Receives anonymous client telemetry (UUID, app version, configuration settings, and watchlist count) from the ship tracker app, updates/replaces the client's telemetry record (tracking the initial creation date via `created_at` and preserving it on updates) in the database, and returns the standard simplified status JSON response (equivalent to `GET /api/v1/status?simple=true`). No client IP hashes are stored.
@@ -43,6 +44,8 @@ The backend is built in pure Node.js without heavy frameworks (e.g., Express) to
   * `POST /api/v1/vote`: Submit, change, or withdraw a vote on a status state (stored via hashed IP).
   * `POST /api/v1/test/simulate` (DEV mode only): Simulates manual state transitions (e.g. `Down`, `Silent Failure`, `Auth Error`, `Up`) with optional custom error message payloads.
   * `POST /api/v1/test/resume` (DEV mode only): Clears simulated state and resumes live monitoring of `stream.aisstream.io`.
+  * `GET /api/v1/cms`: Fetch website content blocks (general copy configurations, status indicators, and FAQs). Publicly accessible.
+  * `POST /api/v1/cms`: Save updated site content (authorized via `Authorization: Bearer <ADMIN_API_KEY>`). Includes security brute-force limits.
 * **WebSocket Client**: Establishes a persistent connection to `wss://stream.aisstream.io/v0/stream`, subscribes to shipping vessel position reports in a defined geographical bounding box, and monitors stream state.
 * **Uptime State Machine**: Evaluates current health against five monitored states:
   * **Pending**: Initial startup state before a connection attempt completes. Displays as "Connecting..." with a spinner on the UI.
@@ -144,6 +147,17 @@ Used to track anonymous configuration statistics sent by instances of the AIS Sh
 | `last_seen` | `TEXT` | ISO-8601 Timestamp of the last check-in |
 | `ip_hash` | `TEXT` | Hashed client IP address (SHA-256) |
 
+### Database Table: `cms_content`
+Used to manage editable site copy dynamically, including headings, descriptions, status indicator details, and FAQs.
+
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `key` | `TEXT` | Primary key. Unique string identifier for the copy configuration (e.g. `site.title`, `faq.1.q`) |
+| `value` | `TEXT` | The text value/copy associated with the configuration |
+| `group_id` | `TEXT` | Organizational group, used for categorizing on the CMS editing panel (`general`, `states`, or `faqs`) |
+| `label` | `TEXT` | Human-readable descriptor label showing in the editor form |
+| `type` | `TEXT` | Input control type hint (`text` or `textarea`) |
+
 ### Incident Timeline JSON Structure (`details`)
 To track how errors mutate during a single outage (e.g., transitioning from a network drop to successive connection timeouts), the `details` field is stored as a structured timeline payload:
 
@@ -206,6 +220,11 @@ The frontend is a single-page app built using semantic HTML5, Vanilla JavaScript
     * **Metric Cards**: Total installs, active installs (30d, 60d, 90d), new installs this week, and new installs in the last 30 days.
     * **Charts**: App version distribution (doughnut chart) and adoption rates (bar chart comparing settings configurations).
     * **Active Installations Table**: Masked client UUIDs (no IP addresses are stored or shown), configuration parameters, and check-in dates. Supports interactive client-side column sorting and a "Show More" expansion button.
+* **Content Management System (CMS) Page**: Serves at `/cms` (or `/cms.html`), leveraging the same `ADMIN_API_KEY` verification check. It allows editing branding copywriting, state banner text details, and FAQs:
+  * **Interactive Editor Interface**: Connects to the database and builds input controls dynamically based on record properties (e.g. rendering textarea controls for paragraphs and basic input fields for shorter keys).
+  * **Categorized Tab Workspace**: Organizes fields under distinct panels ("General Info", "Status Indicators", and "FAQs") to make content location highly intuitive.
+  * **Real-time DOM Hydration**: During public client load, `app.js` fetches `/api/v1/cms` and dynamically overwrites all hardcoded copy markers, titles, state config items, and FAQ lists.
+  * **Google Schema.org Script Injection**: Automatically generates and appends dynamically compiled `WebSite` and `FAQPage` JSON-LD blocks to the `<head>` of the page at runtime, maximizing performance for search engine rich snippets and AI indexing bots.
 
 ---
 
