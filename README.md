@@ -1,6 +1,6 @@
 # AISStream Uptime Monitor
 
-A lightweight Node.js daemon and dashboard to monitor the live AIS shipping stream (`stream.aisstream.io`). It tracks WebSocket connection health, alerts on silent streams (where a connection is open but no shipping data is received), logs outages in SQLite, and provides a web dashboard to see the current status at a glance.
+A lightweight dashboard to monitor the live AIS shipping stream (`stream.aisstream.io`). It tracks WebSocket connection health, alerts on silent streams (where a connection is open but no shipping data is received), logs outages in SQLite, and provides a web dashboard to see the current status at a glance.
 
 You can access the [live service here](https://aisuptime.buttermilkgreen.fyi) with API docs below. 
 
@@ -90,53 +90,7 @@ Example response:
 }
 ```
 
-#### POST `/api/v1/admin/verify`
-Checks if the sent admin key is correct.
-- **Headers**: `Authorization: Bearer <ADMIN_API_KEY>`
 
-Example response:
-```json
-{
-  "success": true
-}
-```
 
-#### PATCH `/api/v1/incidents/:id`
-Updates parameters of an incident by ID.
-- **Headers**: `Authorization: Bearer <ADMIN_API_KEY>`
-- **Request Body** (all fields optional):
-```json
-{
-  "start_time": "2026-06-22T10:00:00.000Z",
-  "admin_notes": "ISP maintenance scheduled",
-  "admin_link": "https://isp.status/incident/123",
-  "admin_link_text": "ISP Status Page",
-  "outage_type": "Down",
-  "override_votes_up": 10,
-  "override_votes_down": 0,
-  "errors": [
-    { "timestamp": "2026-06-22T10:00:00.000Z", "type": "Down", "message": "ECONNREFUSED" }
-  ]
-}
-```
-Example response:
-```json
-{
-  "success": true,
-  "message": "Incident updated successfully."
-}
-```
-
-#### DELETE `/api/v1/incidents/:id`
-Deletes an incident by its ID. If it is the currently active incident, the system state reverts to the previous incident or resets to operational.
-- **Headers**: `Authorization: Bearer <ADMIN_API_KEY>`
-
-Example response:
-```json
-{
-  "success": true,
-  "message": "Incident deleted."
-}
-```
 
 
