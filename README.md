@@ -139,40 +139,4 @@ Example response:
 }
 ```
 
-### Dev only queries (if you are self hosting and `DEV=true` is set.)
-
-#### GET `/api/v1/logs`
-Returns the 50 most recent console log messages.
-
-#### POST `/api/v1/test/simulate`
-Forces a simulated outage status. 
-- **Request Body**: `{"state": "Silent Failure"}`
-
-#### POST `/api/v1/test/stale`
-Forces a simulated stale connection state.
-- **Request Body**: `{"stale": true}`
-
-#### POST `/api/v1/test/resume`
-Resumes live monitoring and cancels the active simulation.
-
-
----
-
-## Environment Variables
-
-If self hosting, you can configure these environment variables or add them to a `.env` file in the project root:
-
-| Variable | Default | Description |
-| :--- | :--- | :--- |
-| `AISSTREAM_API_KEY` | *None (Required)* | Your secret API key from `aisstream.io`. |
-| `PORT` | `3000` | The port number on which the HTTP server and dashboard run. |
-| `DEV` | `false` / `production` | Set `DEV=true` to enable dashboard simulation tools and developer logs. |
-| `AISSTREAM_BOUNDING_BOXES` | `[[[1.15, 103.6], [1.45, 104.1]]]` | A JSON array defining coordinate bounding boxes to subscribe to (defaults to the Singapore Strait). |
-| `SILENCE_TIMEOUT_SECONDS` | `15` | Seconds of inactivity on the socket before declaring a `Silent Failure`. |
-| `SILENCE_TO_DOWN_TIMEOUT_SECONDS` | `1800` (30 mins) | Seconds a stream can remain in `Silent Failure` before being classified as `Down`. |
-| `API_RATE_LIMIT_RPM` | `60` | Max API requests permitted per minute per IP address. |
-| `API_CACHE_TTL_SECONDS` | `15` | Lifespan in seconds of cached JSON responses for status/incidents queries. |
-| `ADMIN_API_KEY` | *None* | Cryptographically secure random token to authorize manual incident updates, deletes, and API usage stats. |
-
-
 
