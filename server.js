@@ -84,6 +84,9 @@ const SILENCE_TO_DOWN_TIMEOUT = parseInt(process.env.SILENCE_TO_DOWN_TIMEOUT_SEC
 const FLAP_PROTECTION_WINDOW = parseInt(process.env.FLAP_PROTECTION_WINDOW_SECONDS, 10) || 120;
 const RATE_LIMIT_RPM = parseInt(process.env.API_RATE_LIMIT_RPM, 10) || 60;
 const CACHE_TTL_SECONDS = parseInt(process.env.API_CACHE_TTL_SECONDS, 10) || 15;
+const RECONNECT_MIN_DELAY = (parseInt(process.env.RECONNECT_MIN_DELAY_SECONDS, 10) || 10) * 1000;
+const RECONNECT_MAX_DELAY = (parseInt(process.env.RECONNECT_MAX_DELAY_SECONDS, 10) || 60) * 1000;
+
 let cmsCache = {};
 let simulatedModeActive = false;
 let simulatedStaleActive = false;
@@ -1241,8 +1244,23 @@ function connectAISStream() {
 function scheduleReconnect(customDelayMs = null) {
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectAttempts++;
-  const delayMs = customDelayMs || 10000;
-  const seconds = delayMs / 1000;
+
+  // Exponential backoff: minDelay * 2^(attempts - 1)
+  const factor = Math.pow(2, Math.max(0, reconnectAttempts - 1));
+  const calculatedDelay = RECONNECT_MIN_DELAY * factor;
+  const cappedDelay = Math.min(calculatedDelay, RECONNECT_MAX_DELAY);
+
+  // Apply random jitter of ±15% to avoid synchronized retries
+  const jitterFactor = 0.85 + Math.random() * 0.3; // range [0.85, 1.15]
+  let delayMs = Math.round(cappedDelay * jitterFactor);
+  delayMs = Math.max(delayMs, RECONNECT_MIN_DELAY);
+
+  // If a custom minimum delay is provided (e.g. rate limit backoff), respect the larger delay
+  if (customDelayMs !== null) {
+    delayMs = Math.max(delayMs, customDelayMs);
+  }
+
+  const seconds = (delayMs / 1000).toFixed(1);
   logEvent(`Scheduling reconnect attempt #${reconnectAttempts} in ${seconds} seconds...`, "info");
   reconnectTimer = setTimeout(connectAISStream, delayMs);
 }

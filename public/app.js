@@ -626,11 +626,27 @@ function renderIncidentHistory(incidents) {
 
       let timeText = "";
       const isOngoing = !inc.end_time;
+      const end = inc.end_time ? new Date(inc.end_time) : new Date();
+      const diffMins = Math.round((end - start) / 60000);
+
       if (isOngoing) {
-        timeText = "Ongoing";
+        if (diffMins < 1) {
+          timeText = "Ongoing";
+        } else if (diffMins < 60) {
+          timeText = `Ongoing (${diffMins}m)`;
+        } else {
+          const hours = Math.floor(diffMins / 60);
+          const mins = diffMins % 60;
+          if (hours >= 24) {
+            const days = Math.floor(hours / 24);
+            const remainingHours = hours % 24;
+            const daysStr = days === 1 ? "1&nbsp;day" : `${days}&nbsp;days`;
+            timeText = `Ongoing (${daysStr} ${remainingHours}h&nbsp;${mins}m)`;
+          } else {
+            timeText = `Ongoing (${hours}h&nbsp;${mins}m)`;
+          }
+        }
       } else {
-        const end = new Date(inc.end_time);
-        const diffMins = Math.round((end - start) / 60000);
         if (diffMins < 1) {
           timeText = "< 1m";
         } else if (diffMins < 60) {
@@ -638,7 +654,14 @@ function renderIncidentHistory(incidents) {
         } else {
           const hours = Math.floor(diffMins / 60);
           const mins = diffMins % 60;
-          timeText = `${hours}h ${mins}m outage`;
+          if (hours >= 24) {
+            const days = Math.floor(hours / 24);
+            const remainingHours = hours % 24;
+            const daysStr = days === 1 ? "1&nbsp;day" : `${days}&nbsp;days`;
+            timeText = `${daysStr} ${remainingHours}h&nbsp;${mins}m outage`;
+          } else {
+            timeText = `${hours}h&nbsp;${mins}m outage`;
+          }
         }
       }
 
