@@ -1641,10 +1641,10 @@ const server = http.createServer((req, res) => {
     const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
     const countQuery = useActiveIncident
-      ? "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE incident_id = ? AND timestamp >= ? GROUP BY vote_type"
+      ? "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE incident_id = ? GROUP BY vote_type"
       : "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE status_state = ? AND incident_id IS NULL AND timestamp >= ? GROUP BY vote_type";
     
-    const countParams = useActiveIncident ? [activeIncidentId, cutoffTime] : [state, cutoffTime];
+    const countParams = useActiveIncident ? [activeIncidentId] : [state, cutoffTime];
 
     db.all(
       countQuery,
@@ -1663,10 +1663,10 @@ const server = http.createServer((req, res) => {
         });
 
         const userQuery = useActiveIncident
-          ? "SELECT vote_type FROM status_votes WHERE client_ip_hash = ? AND incident_id = ? AND timestamp >= ?"
+          ? "SELECT vote_type FROM status_votes WHERE client_ip_hash = ? AND incident_id = ?"
           : "SELECT vote_type FROM status_votes WHERE client_ip_hash = ? AND status_state = ? AND incident_id IS NULL AND timestamp >= ?";
         
-        const userParams = useActiveIncident ? [hashIp(clientIp), activeIncidentId, cutoffTime] : [hashIp(clientIp), state, cutoffTime];
+        const userParams = useActiveIncident ? [hashIp(clientIp), activeIncidentId] : [hashIp(clientIp), state, cutoffTime];
 
         db.get(
           userQuery,
@@ -1674,7 +1674,12 @@ const server = http.createServer((req, res) => {
           (err2, row) => {
             const userVote = row ? row.vote_type : null;
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ up: upCount, down: downCount, userVote }));
+            res.end(JSON.stringify({ 
+              up: upCount, 
+              down: downCount, 
+              userVote, 
+              period: useActiveIncident ? 'during active incident' : 'last 24 hours' 
+            }));
           }
         );
       }
@@ -1739,10 +1744,10 @@ const server = http.createServer((req, res) => {
 
           const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
           const countQuery = useActiveIncident
-            ? "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE incident_id = ? AND timestamp >= ? GROUP BY vote_type"
+            ? "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE incident_id = ? GROUP BY vote_type"
             : "SELECT vote_type, COUNT(*) as count FROM status_votes WHERE status_state = ? AND incident_id IS NULL AND timestamp >= ? GROUP BY vote_type";
           
-          const countParams = useActiveIncident ? [incidentIdToUse, cutoffTime] : [state, cutoffTime];
+          const countParams = useActiveIncident ? [incidentIdToUse] : [state, cutoffTime];
 
           db.all(
             countQuery,
@@ -1760,7 +1765,12 @@ const server = http.createServer((req, res) => {
                 if (r.vote_type === 'down') downCount = r.count;
               });
               res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ up: upCount, down: downCount, userVote: vote || null }));
+              res.end(JSON.stringify({ 
+                up: upCount, 
+                down: downCount, 
+                userVote: vote || null,
+                period: useActiveIncident ? 'during active incident' : 'last 24 hours'
+              }));
             }
           );
         });

@@ -224,6 +224,16 @@ async function updateVotes(state) {
       voteUpCount.textContent = data.up;
       voteDownCount.textContent = data.down;
 
+      const votePeriodText = document.getElementById('vote-period-text');
+      if (votePeriodText) {
+        if (data.period === 'during active incident') {
+          votePeriodText.style.display = 'none';
+        } else if (data.period) {
+          votePeriodText.textContent = data.period;
+          votePeriodText.style.display = 'inline';
+        }
+      }
+
       if (data.userVote === 'up') {
         voteUpBtn.classList.add('active');
         voteDownBtn.classList.remove('active');
@@ -270,6 +280,16 @@ async function castVote(voteType) {
 
       document.getElementById('vote-up-count').textContent = data.up;
       document.getElementById('vote-down-count').textContent = data.down;
+
+      const votePeriodText = document.getElementById('vote-period-text');
+      if (votePeriodText) {
+        if (data.period === 'during active incident') {
+          votePeriodText.style.display = 'none';
+        } else if (data.period) {
+          votePeriodText.textContent = data.period;
+          votePeriodText.style.display = 'inline';
+        }
+      }
 
       if (data.userVote === 'up') {
         voteUpBtn.classList.add('active');
