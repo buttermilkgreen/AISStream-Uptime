@@ -582,23 +582,8 @@ function renderIncidentHistory(incidents) {
         'Auth Error': cms['history.auth_title'] || 'Authentication Failure'
       };
       let title = stateTitleMap[inc.outage_type] || inc.outage_type;
-      let description = inc.admin_notes || "No further details logged.";
       let errorsTimeline = null;
-      if (!inc.admin_notes && inc.details) {
-        try {
-          const parsed = JSON.parse(inc.details);
-          if (parsed) {
-            if (parsed.errors && Array.isArray(parsed.errors)) {
-              errorsTimeline = parsed.errors;
-              if (errorsTimeline.length > 0) {
-                description = errorsTimeline[errorsTimeline.length - 1].message;
-              }
-            } else if (parsed.message) {
-              description = parsed.message;
-            }
-          }
-        } catch (e) { }
-      } else if (inc.details) {
+      if (inc.details) {
         try {
           const parsed = JSON.parse(inc.details);
           if (parsed && parsed.errors) {
@@ -614,8 +599,24 @@ function renderIncidentHistory(incidents) {
       const friendlyDuration = formatDuration(durationSec);
       const isLongerThanADay = durationSec > 86400;
       const friendlyStartDate = getFriendlyOrdinalDate(start);
+      const startTimeFormatted = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
-      description = replaceDurationInMessage(description, friendlyDuration);
+      const isOngoing = !inc.end_time;
+      let description = "";
+      if (inc.outage_type === 'Silent Failure') {
+        description = isOngoing
+          ? `Connection established but no ship data has been received for ${friendlyDuration} (since ${startTimeFormatted}).`
+          : `Connection was established but no ship data was received for ${friendlyDuration} (since ${startTimeFormatted}).`;
+      } else if (inc.outage_type === 'Auth Error') {
+        description = isOngoing
+          ? `The AISStream server has been returning authentication errors for ${friendlyDuration} (since ${startTimeFormatted}).`
+          : `The AISStream server returned authentication errors for ${friendlyDuration} (since ${startTimeFormatted}).`;
+      } else {
+        description = isOngoing
+          ? `The AISStream server has been unreachable for ${friendlyDuration} (since ${startTimeFormatted}).`
+          : `The AISStream server was unreachable for ${friendlyDuration} (since ${startTimeFormatted}).`;
+      }
+
       if (errorsTimeline && Array.isArray(errorsTimeline)) {
         errorsTimeline.forEach(err => {
           if (err.message) {
@@ -625,27 +626,11 @@ function renderIncidentHistory(incidents) {
       }
 
       let timeText = "";
-      const isOngoing = !inc.end_time;
       const end = inc.end_time ? new Date(inc.end_time) : new Date();
       const diffMins = Math.round((end - start) / 60000);
 
       if (isOngoing) {
-        if (diffMins < 1) {
-          timeText = "Ongoing";
-        } else if (diffMins < 60) {
-          timeText = `Ongoing (${diffMins}m)`;
-        } else {
-          const hours = Math.floor(diffMins / 60);
-          const mins = diffMins % 60;
-          if (hours >= 24) {
-            const days = Math.floor(hours / 24);
-            const remainingHours = hours % 24;
-            const daysStr = days === 1 ? "1&nbsp;day" : `${days}&nbsp;days`;
-            timeText = `Ongoing (${daysStr} ${remainingHours}h&nbsp;${mins}m)`;
-          } else {
-            timeText = `Ongoing (${hours}h&nbsp;${mins}m)`;
-          }
-        }
+        timeText = "Ongoing";
       } else {
         if (diffMins < 1) {
           timeText = "< 1m";
@@ -667,7 +652,6 @@ function renderIncidentHistory(incidents) {
 
       // Truncate the main view description to 140 characters
       const displayDescription = description.length > 140 ? description.substring(0, 137) + "..." : description;
-      const startTimeFormatted = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
       match.incidents.push({
         id: inc.id,
