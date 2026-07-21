@@ -386,6 +386,62 @@ body {
   .heartbeat-container {
     gap: 2px;
   }
+  
+  .history-section {
+    padding: 1rem;
+  }
+  
+  .incident-row-container {
+    padding: 0.75rem;
+  }
+  
+  .incident-row {
+    display: grid !important;
+    grid-template-areas:
+      "date time"
+      "content content";
+    grid-template-columns: 1fr auto;
+    gap: 0.5rem 0.75rem;
+    align-items: center;
+  }
+  
+  .incident-date {
+    grid-area: date;
+    width: auto !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+  }
+
+  .incident-date .date-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  
+  .incident-time {
+    grid-area: time;
+    width: auto !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 0.5rem !important;
+    text-align: right;
+  }
+  
+  .incident-content {
+    grid-area: content;
+    margin-left: 0;
+    margin-top: 0.25rem;
+    padding-left: 0.75rem;
+  }
+
+  .timeline-event-header {
+    flex-wrap: wrap;
+    gap: 0.25rem 0.5rem;
+  }
 }
 
 .heartbeat-block {
