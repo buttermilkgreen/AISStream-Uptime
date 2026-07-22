@@ -123,6 +123,7 @@ function replaceDurationInMessage(msg, newDurationText) {
 
 // Config mapping for status states
 let isAdminVerified = false;
+let currentUpNote = null;
 
 
 const STATE_CONFIGS = {
@@ -330,7 +331,7 @@ const historyContainer = document.getElementById('history-container');
  * @param {object} activeIncident - Current active incident
  * @param {boolean} websocketConnected - Whether websocket is connected
  */
-function updateUI(state, lastChecked, silenceTimeout, activeIncident, websocketConnected) {
+function updateUI(state, lastChecked, silenceTimeout, activeIncident, websocketConnected, upNote) {
   const config = STATE_CONFIGS[state] || {
     className: 'state-loading',
     statusTitle: 'Checking Status...',
@@ -409,11 +410,31 @@ function updateUI(state, lastChecked, silenceTimeout, activeIncident, websocketC
 
   const bannerNotesEl = document.getElementById('status-banner-admin-notes');
   const bannerLinkWrapper = document.getElementById('status-banner-link-wrapper');
+  const upNoteEditBtn = document.getElementById('status-banner-up-note-edit-btn');
+
+  if (upNoteEditBtn) {
+    if (state === 'Up' && isAdminVerified) {
+      upNoteEditBtn.style.display = 'inline-flex';
+    } else {
+      upNoteEditBtn.style.display = 'none';
+    }
+  }
+
+  if (upNote !== undefined) {
+    currentUpNote = upNote;
+  }
 
   if (bannerNotesEl) {
     if (activeIncident && activeIncident.admin_notes && state !== 'Pending' && state !== 'Up' && STATE_CONFIGS[state]) {
       bannerNotesEl.textContent = activeIncident.admin_notes;
       bannerNotesEl.style.display = 'block';
+      bannerNotesEl.style.borderLeftColor = '#3b82f6';
+      bannerNotesEl.style.background = 'rgba(59, 130, 246, 0.05)';
+    } else if (state === 'Up' && currentUpNote) {
+      bannerNotesEl.textContent = currentUpNote;
+      bannerNotesEl.style.display = 'block';
+      bannerNotesEl.style.borderLeftColor = '#10b981';
+      bannerNotesEl.style.background = 'rgba(16, 185, 129, 0.08)';
     } else {
       bannerNotesEl.textContent = '';
       bannerNotesEl.style.display = 'none';
@@ -968,7 +989,7 @@ async function fetchStatus() {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     const data = await response.json();
-    updateUI(data.state, data.lastChecked, data.silenceTimeout, data.activeIncident, data.websocketConnected);
+    updateUI(data.state, data.lastChecked, data.silenceTimeout, data.activeIncident, data.websocketConnected, data.up_note);
     renderHeartbeat(data.history);
 
     // Dev HUD visibility
@@ -1028,6 +1049,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (result.valid) {
         isAdminVerified = true;
         fetchIncidentHistory(); // re-render history with edit options visible
+        if (currentBannerState) updateUI(currentBannerState, null, null, null, null, currentUpNote);
       } else {
         // ONLY clear the token if the server explicitly confirmed it is invalid (401 Unauthorized)
         if (result.status === 401) {
@@ -1038,13 +1060,87 @@ document.addEventListener('DOMContentLoaded', () => {
           // Still assume verified locally so that they can see edit buttons
           isAdminVerified = true;
           fetchIncidentHistory();
+          if (currentBannerState) updateUI(currentBannerState, null, null, null, null, currentUpNote);
         } else {
           console.warn(`Verification failed with status ${result.status} or network error. Key retained.`);
           // Assume verified locally so they can still try to edit
           isAdminVerified = true;
           fetchIncidentHistory();
+          if (currentBannerState) updateUI(currentBannerState, null, null, null, null, currentUpNote);
         }
       }
+    });
+  }
+
+  // Edit Up Note Modal UI bindings
+  const editUpNoteModal = document.getElementById('edit-up-note-modal');
+  const upNoteEditBtn = document.getElementById('status-banner-up-note-edit-btn');
+  const closeEditUpNoteBtn = document.getElementById('btn-close-edit-up-note');
+  const cancelEditUpNoteBtn = document.getElementById('btn-cancel-edit-up-note');
+  const clearEditUpNoteBtn = document.getElementById('btn-clear-edit-up-note');
+  const submitEditUpNoteBtn = document.getElementById('btn-submit-edit-up-note');
+  const editUpNoteText = document.getElementById('edit-up-note-text');
+
+  if (upNoteEditBtn) {
+    upNoteEditBtn.addEventListener('click', () => {
+      if (editUpNoteText) {
+        editUpNoteText.value = currentUpNote || '';
+      }
+      if (editUpNoteModal) {
+        editUpNoteModal.style.display = 'flex';
+      }
+    });
+  }
+
+  const hideUpNoteModal = () => {
+    if (editUpNoteModal) editUpNoteModal.style.display = 'none';
+  };
+
+  if (closeEditUpNoteBtn) closeEditUpNoteBtn.addEventListener('click', hideUpNoteModal);
+  if (cancelEditUpNoteBtn) cancelEditUpNoteBtn.addEventListener('click', hideUpNoteModal);
+
+  async function saveUpNote(noteValue) {
+    const savedKey = localStorage.getItem('adminApiKey');
+    if (!savedKey) {
+      alert("Admin authorization required.");
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/v1/admin/up-note', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${savedKey}`
+        },
+        body: JSON.stringify({ up_note: noteValue })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        alert(`Failed to save note: ${errData.error || res.statusText}`);
+        return;
+      }
+
+      const data = await res.json();
+      currentUpNote = data.up_note;
+      updateUI(currentBannerState, new Date().toISOString(), null, null, true, currentUpNote);
+      hideUpNoteModal();
+    } catch (e) {
+      alert("Error saving note: " + e.message);
+    }
+  }
+
+  if (submitEditUpNoteBtn) {
+    submitEditUpNoteBtn.addEventListener('click', () => {
+      const val = editUpNoteText ? editUpNoteText.value : '';
+      saveUpNote(val);
+    });
+  }
+
+  if (clearEditUpNoteBtn) {
+    clearEditUpNoteBtn.addEventListener('click', () => {
+      saveUpNote('');
     });
   }
 

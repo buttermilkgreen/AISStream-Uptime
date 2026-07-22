@@ -636,6 +636,7 @@ function loadCmsCache(callback) {
 }
 
 // 4. Uptime State variables and Heartbeat History (30 minutes)
+let customUpNote = null;
 let currentStatus = {
   state: "Pending", // Starts as pending status until connection established
   lastChecked: new Date().toISOString(),
@@ -880,6 +881,7 @@ function updateState(newState, detailsObj = null) {
 
   logEvent(`State transition: ${oldState} -> ${newState}`, "info");
   currentStatus.state = newState;
+  customUpNote = null;
 
   if (isNewStateFailing) {
     lastIncidentUpdateTime = Date.now();
@@ -1637,7 +1639,8 @@ const server = http.createServer((req, res) => {
           simulated: simulatedModeActive,
           simulatedStale: simulatedStaleActive,
           silenceTimeout: SILENCE_TIMEOUT,
-          activeIncident: activeIncident
+          activeIncident: activeIncident,
+          up_note: customUpNote
         });
 
         setCachedResponse('status', payload);
@@ -2173,6 +2176,61 @@ const server = http.createServer((req, res) => {
     adminFailuresByIp.delete(clientIp);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true }));
+    return;
+  }
+
+  // API - Update Up Note Endpoint (Protected by ADMIN_API_KEY)
+  if (req.url === '/api/v1/admin/up-note' && req.method === 'POST') {
+    const authHeader = req.headers['authorization'];
+    const adminKey = process.env.ADMIN_API_KEY;
+
+    if (!adminKey) {
+      res.writeHead(501, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Server configuration error: ADMIN_API_KEY is not set.' }));
+      return;
+    }
+
+    let authenticated = false;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const sentToken = authHeader.substring(7);
+      authenticated = safeCompare(sentToken, adminKey);
+    }
+
+    if (!authenticated) {
+      const attempts = (adminFailuresByIp.get(clientIp) || 0) + 1;
+      adminFailuresByIp.set(clientIp, attempts);
+      logEvent(`Failed admin up-note update attempt from ${clientIp}. Total attempts: ${attempts}`, "warning");
+
+      if (attempts >= 3) {
+        bannedIPs.set(clientIp, Date.now() + 15 * 60 * 1000);
+      }
+
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized: Invalid admin key.' }));
+      return;
+    }
+
+    adminFailuresByIp.delete(clientIp);
+
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk;
+      if (body.length > 1e6) req.destroy();
+    });
+
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        customUpNote = (payload.up_note && typeof payload.up_note === 'string') ? payload.up_note.trim() : null;
+        if (customUpNote === '') customUpNote = null;
+        invalidateCache();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, up_note: customUpNote }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON payload.' }));
+      }
+    });
     return;
   }
 

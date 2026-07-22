@@ -175,6 +175,26 @@ body {
   font-weight: 700;
 }
 
+.status-banner-edit-btn {
+  background: transparent;
+  border: none;
+  color: currentColor;
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.2s ease, background-color 0.2s ease;
+  margin-left: 2px;
+}
+
+.status-banner-edit-btn:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.08);
+}
+
 .status-icon-wrapper {
   display: inline-flex;
   align-items: center;

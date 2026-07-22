@@ -72,6 +72,12 @@
             </svg>
           </div>
           <div id="status-banner-title" class="status-title">Checking Status...</div>
+          <button id="status-banner-up-note-edit-btn" class="status-banner-edit-btn" title="Add or edit note for Operational state" style="display: none;" aria-label="Edit status note">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+          </button>
         </div>
         <div class="status-banner-body">
           <div class="status-banner-info" style="display: flex; flex-direction: column; gap: 6px; flex: 1 1 300px;">
@@ -288,6 +294,31 @@
         <button id="btn-cancel-edit-incident" class="btn" style="background: #475569; color: white;">Cancel</button>
         <button id="btn-submit-edit-incident" class="btn" style="background: #2563eb; color: white;">Save
           Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Up Note Modal -->
+  <div id="edit-up-note-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-card" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3>Add / Edit Operational Note</h3>
+        <button id="btn-close-edit-up-note" class="btn-close-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.85rem; color: #94a3b8; margin-top: 0; margin-bottom: 1rem;">
+          Add a custom note to the top status card while the service is Operational. This text will clear automatically if an issue occurs.
+        </p>
+        <div class="form-group">
+          <label for="edit-up-note-text">Custom Note</label>
+          <textarea id="edit-up-note-text" placeholder="Enter free text note..." rows="3"
+            style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem; resize: vertical; width: 100%; box-sizing: border-box;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-clear-edit-up-note" class="btn" style="background: #ef4444; color: white; margin-right: auto;">Clear Note</button>
+        <button id="btn-cancel-edit-up-note" class="btn" style="background: #475569; color: white;">Cancel</button>
+        <button id="btn-submit-edit-up-note" class="btn" style="background: #10b981; color: white;">Save Note</button>
       </div>
     </div>
   </div>
