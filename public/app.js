@@ -623,17 +623,21 @@ function renderIncidentHistory(incidents) {
       const startTimeFormatted = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
       const isOngoing = !inc.end_time;
-      let resolvedTimeText = null;
-      if (inc.end_time) {
+      let startTimeDisplay = startTimeFormatted;
+      let endTimeDisplay = null;
+
+      if (!isOngoing && inc.end_time) {
         const endObj = new Date(inc.end_time);
         if (!isNaN(endObj.getTime())) {
+          startTimeDisplay = `Start: ${startTimeFormatted}`;
           const endTimeFormatted = endObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
           const isSameDay = endObj.toDateString() === start.toDateString();
           if (isSameDay) {
-            resolvedTimeText = `Resolved: ${endTimeFormatted}`;
+            endTimeDisplay = `End: ${endTimeFormatted}`;
           } else {
-            const endMonthName = endObj.toLocaleDateString([], { month: 'short' });
-            resolvedTimeText = `Resolved: ${endTimeFormatted} (${endObj.getDate()} ${endMonthName})`;
+            const dd = String(endObj.getDate()).padStart(2, '0');
+            const mm = String(endObj.getMonth() + 1).padStart(2, '0');
+            endTimeDisplay = `End: ${endTimeFormatted} (${dd}/${mm})`;
           }
         }
       }
@@ -692,8 +696,8 @@ function renderIncidentHistory(incidents) {
         id: inc.id,
         dayNum,
         dayName,
-        startTimeFormatted,
-        resolvedTimeText,
+        startTimeDisplay,
+        endTimeDisplay,
         startTimeRaw: inc.start_time,
         friendlyStartDate,
         isLongerThanADay,
@@ -829,8 +833,8 @@ function renderIncidentHistory(incidents) {
                   <span class="date-num">${inc.dayNum}</span>
                   <span class="date-day">${inc.dayName}</span>
                 </div>
-                <div class="date-time-start">${inc.startTimeFormatted}</div>
-                ${inc.resolvedTimeText ? `<div class="date-time-resolved" style="font-size: 0.7rem; color: #10b981; font-weight: 600; font-family: monospace; white-space: nowrap; margin-top: 2px;">${escapeHtml(inc.resolvedTimeText)}</div>` : ''}
+                <div class="date-time-start">${escapeHtml(inc.startTimeDisplay)}</div>
+                ${inc.endTimeDisplay ? `<div class="date-time-end">${escapeHtml(inc.endTimeDisplay)}</div>` : ''}
               </div>
               <div class="incident-content">
                 <div class="incident-name">${inc.title}</div>

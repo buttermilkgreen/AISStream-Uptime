@@ -665,31 +665,17 @@ body {
   flex-direction: column;
   align-items: flex-start;
   gap: 0.15rem;
-  min-width: 85px;
+  min-width: 105px;
   flex-shrink: 0;
 }
 
-.date-time-resolved {
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: #10b981;
-  font-family: monospace;
-  white-space: nowrap;
-  margin-top: 1px;
-}
-
-.date-row {
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: 0.25rem;
-}
-
-.date-time-start {
+.date-time-start,
+.date-time-end {
   font-size: 0.75rem;
   font-weight: 600;
   color: #6b7280;
   font-family: monospace;
+  white-space: nowrap;
 }
 
 .date-num {
