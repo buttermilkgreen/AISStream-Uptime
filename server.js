@@ -250,6 +250,18 @@ db.serialize(() => {
     // Ignore error
   });
 
+  db.run(`
+    ALTER TABLE incidents ADD COLUMN base_votes_up INTEGER
+  `, (err) => {
+    // Ignore error
+  });
+
+  db.run(`
+    ALTER TABLE incidents ADD COLUMN base_votes_down INTEGER
+  `, (err) => {
+    // Ignore error
+  });
+
   // Create telemetry table if not exists
   db.run(`
     CREATE TABLE IF NOT EXISTS telemetry (
@@ -637,6 +649,10 @@ function loadCmsCache(callback) {
 
 // 4. Uptime State variables and Heartbeat History (30 minutes)
 let customUpNote = null;
+let customUpVotesUp = null;
+let customUpVotesDown = null;
+let customUpBaseUp = null;
+let customUpBaseDown = null;
 let currentStatus = {
   state: "Pending", // Starts as pending status until connection established
   lastChecked: new Date().toISOString(),
@@ -882,6 +898,10 @@ function updateState(newState, detailsObj = null) {
   logEvent(`State transition: ${oldState} -> ${newState}`, "info");
   currentStatus.state = newState;
   customUpNote = null;
+  customUpVotesUp = null;
+  customUpVotesDown = null;
+  customUpBaseUp = null;
+  customUpBaseDown = null;
 
   if (isNewStateFailing) {
     lastIncidentUpdateTime = Date.now();
@@ -1640,7 +1660,9 @@ const server = http.createServer((req, res) => {
           simulatedStale: simulatedStaleActive,
           silenceTimeout: SILENCE_TIMEOUT,
           activeIncident: activeIncident,
-          up_note: customUpNote
+          up_note: customUpNote,
+          override_votes_up: customUpVotesUp,
+          override_votes_down: customUpVotesDown
         });
 
         setCachedResponse('status', payload);
@@ -1683,26 +1705,54 @@ const server = http.createServer((req, res) => {
           if (r.vote_type === 'down') downCount = r.count;
         });
 
-        const userQuery = useActiveIncident
-          ? "SELECT vote_type FROM status_votes WHERE client_ip_hash = ? AND incident_id = ?"
-          : "SELECT vote_type FROM status_votes WHERE client_ip_hash = ? AND status_state = ? AND incident_id IS NULL AND timestamp >= ?";
-        
-        const userParams = useActiveIncident ? [hashIp(clientIp), activeIncidentId] : [hashIp(clientIp), state, cutoffTime];
+        const sendVotesResponse = () => {
+          const userQuery = useActiveIncident
+            ? "SELECT vote_type FROM status_votes WHERE client_ip_hash = ? AND incident_id = ?"
+            : "SELECT vote_type FROM status_votes WHERE client_ip_hash = ? AND status_state = ? AND incident_id IS NULL AND timestamp >= ?";
+          
+          const userParams = useActiveIncident ? [hashIp(clientIp), activeIncidentId] : [hashIp(clientIp), state, cutoffTime];
 
-        db.get(
-          userQuery,
-          userParams,
-          (err2, row) => {
-            const userVote = row ? row.vote_type : null;
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ 
-              up: upCount, 
-              down: downCount, 
-              userVote, 
-              period: useActiveIncident ? 'during active incident' : 'last 24 hours' 
-            }));
+          db.get(
+            userQuery,
+            userParams,
+            (err2, row) => {
+              const userVote = row ? row.vote_type : null;
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ 
+                up: upCount, 
+                down: downCount, 
+                userVote, 
+                period: useActiveIncident ? 'during active incident' : 'last 24 hours' 
+              }));
+            }
+          );
+        };
+
+        if (useActiveIncident) {
+          db.get("SELECT override_votes_up, override_votes_down, base_votes_up, base_votes_down FROM incidents WHERE id = ?", [activeIncidentId], (errInc, incRow) => {
+            if (incRow) {
+              if (incRow.override_votes_up !== null && incRow.override_votes_up !== undefined) {
+                const baseUp = (incRow.base_votes_up !== null && incRow.base_votes_up !== undefined) ? incRow.base_votes_up : 0;
+                upCount = Math.max(0, incRow.override_votes_up + (upCount - baseUp));
+              }
+              if (incRow.override_votes_down !== null && incRow.override_votes_down !== undefined) {
+                const baseDown = (incRow.base_votes_down !== null && incRow.base_votes_down !== undefined) ? incRow.base_votes_down : 0;
+                downCount = Math.max(0, incRow.override_votes_down + (downCount - baseDown));
+              }
+            }
+            sendVotesResponse();
+          });
+        } else {
+          if (state === 'Up') {
+            if (customUpVotesUp !== null && customUpVotesUp !== undefined) {
+              upCount = Math.max(0, customUpVotesUp + (upCount - (customUpBaseUp || 0)));
+            }
+            if (customUpVotesDown !== null && customUpVotesDown !== undefined) {
+              downCount = Math.max(0, customUpVotesDown + (downCount - (customUpBaseDown || 0)));
+            }
           }
-        );
+          sendVotesResponse();
+        }
       }
     );
     return;
@@ -1785,13 +1835,41 @@ const server = http.createServer((req, res) => {
                 if (r.vote_type === 'up') upCount = r.count;
                 if (r.vote_type === 'down') downCount = r.count;
               });
-              res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ 
-                up: upCount, 
-                down: downCount, 
-                userVote: vote || null,
-                period: useActiveIncident ? 'during active incident' : 'last 24 hours'
-              }));
+              const sendPostVoteResponse = () => {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ 
+                  up: upCount, 
+                  down: downCount, 
+                  userVote: vote || null,
+                  period: useActiveIncident ? 'during active incident' : 'last 24 hours'
+                }));
+              };
+
+              if (useActiveIncident) {
+                db.get("SELECT override_votes_up, override_votes_down, base_votes_up, base_votes_down FROM incidents WHERE id = ?", [incidentIdToUse], (errInc, incRow) => {
+                  if (incRow) {
+                    if (incRow.override_votes_up !== null && incRow.override_votes_up !== undefined) {
+                      const baseUp = (incRow.base_votes_up !== null && incRow.base_votes_up !== undefined) ? incRow.base_votes_up : 0;
+                      upCount = Math.max(0, incRow.override_votes_up + (upCount - baseUp));
+                    }
+                    if (incRow.override_votes_down !== null && incRow.override_votes_down !== undefined) {
+                      const baseDown = (incRow.base_votes_down !== null && incRow.base_votes_down !== undefined) ? incRow.base_votes_down : 0;
+                      downCount = Math.max(0, incRow.override_votes_down + (downCount - baseDown));
+                    }
+                  }
+                  sendPostVoteResponse();
+                });
+              } else {
+                if (state === 'Up') {
+                  if (customUpVotesUp !== null && customUpVotesUp !== undefined) {
+                    upCount = Math.max(0, customUpVotesUp + (upCount - (customUpBaseUp || 0)));
+                  }
+                  if (customUpVotesDown !== null && customUpVotesDown !== undefined) {
+                    downCount = Math.max(0, customUpVotesDown + (downCount - (customUpBaseDown || 0)));
+                  }
+                }
+                sendPostVoteResponse();
+              }
             }
           );
         });
@@ -1925,8 +2003,8 @@ const server = http.createServer((req, res) => {
     db.all(`
       SELECT 
         i.*,
-        COALESCE(i.override_votes_up, (SELECT COUNT(*) FROM status_votes WHERE incident_id = i.id AND vote_type = 'up')) AS votes_up,
-        COALESCE(i.override_votes_down, (SELECT COUNT(*) FROM status_votes WHERE incident_id = i.id AND vote_type = 'down')) AS votes_down
+        (SELECT COUNT(*) FROM status_votes WHERE incident_id = i.id AND vote_type = 'up') AS raw_votes_up,
+        (SELECT COUNT(*) FROM status_votes WHERE incident_id = i.id AND vote_type = 'down') AS raw_votes_down
       FROM incidents i
       ORDER BY i.start_time DESC
     `, (err, rows) => {
@@ -1935,6 +2013,22 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ error: err.message }));
         return;
       }
+      rows.forEach(r => {
+        if (r.override_votes_up !== null && r.override_votes_up !== undefined) {
+          const baseUp = (r.base_votes_up !== null && r.base_votes_up !== undefined) ? r.base_votes_up : 0;
+          r.votes_up = Math.max(0, r.override_votes_up + (r.raw_votes_up - baseUp));
+        } else {
+          r.votes_up = r.raw_votes_up;
+        }
+        if (r.override_votes_down !== null && r.override_votes_down !== undefined) {
+          const baseDown = (r.base_votes_down !== null && r.base_votes_down !== undefined) ? r.base_votes_down : 0;
+          r.votes_down = Math.max(0, r.override_votes_down + (r.raw_votes_down - baseDown));
+        } else {
+          r.votes_down = r.raw_votes_down;
+        }
+        delete r.raw_votes_up;
+        delete r.raw_votes_down;
+      });
       const payload = JSON.stringify(rows);
       setCachedResponse('incidents', payload);
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -2221,11 +2315,50 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const payload = JSON.parse(body || '{}');
-        customUpNote = (payload.up_note && typeof payload.up_note === 'string') ? payload.up_note.trim() : null;
-        if (customUpNote === '') customUpNote = null;
-        invalidateCache();
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, up_note: customUpNote }));
+        const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+        db.all("SELECT vote_type, COUNT(*) as count FROM status_votes WHERE status_state = 'Up' AND incident_id IS NULL AND timestamp >= ? GROUP BY vote_type", [cutoffTime], (errVotes, vRows) => {
+          let realUp = 0;
+          let realDown = 0;
+          if (!errVotes && vRows) {
+            vRows.forEach(r => {
+              if (r.vote_type === 'up') realUp = r.count;
+              if (r.vote_type === 'down') realDown = r.count;
+            });
+          }
+
+          customUpNote = (payload.up_note && typeof payload.up_note === 'string') ? payload.up_note.trim() : null;
+          if (customUpNote === '') customUpNote = null;
+
+          if (payload.override_votes_up !== undefined) {
+            if (payload.override_votes_up === null || payload.override_votes_up === '' || isNaN(payload.override_votes_up)) {
+              customUpVotesUp = null;
+              customUpBaseUp = null;
+            } else {
+              customUpVotesUp = Math.max(0, parseInt(payload.override_votes_up, 10));
+              customUpBaseUp = realUp;
+            }
+          }
+
+          if (payload.override_votes_down !== undefined) {
+            if (payload.override_votes_down === null || payload.override_votes_down === '' || isNaN(payload.override_votes_down)) {
+              customUpVotesDown = null;
+              customUpBaseDown = null;
+            } else {
+              customUpVotesDown = Math.max(0, parseInt(payload.override_votes_down, 10));
+              customUpBaseDown = realDown;
+            }
+          }
+
+          invalidateCache();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ 
+            success: true, 
+            up_note: customUpNote,
+            override_votes_up: customUpVotesUp,
+            override_votes_down: customUpVotesDown
+          }));
+        });
       } catch (e) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Invalid JSON payload.' }));
@@ -2315,7 +2448,7 @@ const server = http.createServer((req, res) => {
           }
         }
 
-        db.get("SELECT start_time, end_time, outage_type, details, override_votes_up, override_votes_down FROM incidents WHERE id = ?", [incidentId], (err, row) => {
+        db.get("SELECT start_time, end_time, outage_type, details, override_votes_up, override_votes_down, base_votes_up, base_votes_down FROM incidents WHERE id = ?", [incidentId], (err, row) => {
           if (err) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: `Database error: ${err.message}` }));
@@ -2328,75 +2461,108 @@ const server = http.createServer((req, res) => {
             return;
           }
 
-          const newStartTime = start_time || row.start_time;
-          const newAdminNotes = admin_notes !== undefined ? admin_notes : null;
-          const newAdminLink = admin_link !== undefined ? admin_link : null;
-          const newAdminLinkText = admin_link_text !== undefined ? admin_link_text : null;
-          const newOutageType = outage_type || row.outage_type;
-          const newOverrideVotesUp = override_votes_up !== undefined ? override_votes_up : row.override_votes_up;
-          const newOverrideVotesDown = override_votes_down !== undefined ? override_votes_down : row.override_votes_down;
-
-          let newDetails = row.details;
-          try {
-            let timelineDetails = row.details ? JSON.parse(row.details) : {};
-            if (errors && Array.isArray(errors)) {
-              timelineDetails.errors = errors.map((errItem, idx) => {
-                const originalErr = (timelineDetails.errors && timelineDetails.errors[idx]) || {};
-                return {
-                  timestamp: errItem.timestamp || originalErr.timestamp || new Date().toISOString(),
-                  type: errItem.type || originalErr.type || 'Down',
-                  message: errItem.message || originalErr.message || '',
-                  raw: originalErr.raw || {}
-                };
+          db.all("SELECT vote_type, COUNT(*) as count FROM status_votes WHERE incident_id = ? GROUP BY vote_type", [incidentId], (errVotes, vRows) => {
+            let realIncUp = 0;
+            let realIncDown = 0;
+            if (!errVotes && vRows) {
+              vRows.forEach(r => {
+                if (r.vote_type === 'up') realIncUp = r.count;
+                if (r.vote_type === 'down') realIncDown = r.count;
               });
             }
 
-            if (timelineDetails) {
-              const startMs = new Date(newStartTime).getTime();
-              const endMs = row.end_time ? new Date(row.end_time).getTime() : Date.now();
-              const durationSec = Math.max(0, (endMs - startMs) / 1000);
-              const durationText = formatDuration(durationSec);
+            const newStartTime = start_time || row.start_time;
+            const newAdminNotes = admin_notes !== undefined ? admin_notes : null;
+            const newAdminLink = admin_link !== undefined ? admin_link : null;
+            const newAdminLinkText = admin_link_text !== undefined ? admin_link_text : null;
+            const newOutageType = outage_type || row.outage_type;
 
-              if (timelineDetails.summary) {
-                timelineDetails.summary = replaceDurationInMessage(timelineDetails.summary, durationText);
+            let newOverrideVotesUp = row.override_votes_up;
+            let newBaseVotesUp = row.base_votes_up;
+            if (override_votes_up !== undefined) {
+              if (override_votes_up === null || override_votes_up === '' || isNaN(override_votes_up)) {
+                newOverrideVotesUp = null;
+                newBaseVotesUp = null;
+              } else {
+                newOverrideVotesUp = Math.max(0, parseInt(override_votes_up, 10));
+                newBaseVotesUp = realIncUp;
               }
+            }
 
-              if (timelineDetails.errors && Array.isArray(timelineDetails.errors)) {
-                timelineDetails.errors.forEach(err => {
-                  if (err.message) {
-                    err.message = replaceDurationInMessage(err.message, durationText);
-                  }
+            let newOverrideVotesDown = row.override_votes_down;
+            let newBaseVotesDown = row.base_votes_down;
+            if (override_votes_down !== undefined) {
+              if (override_votes_down === null || override_votes_down === '' || isNaN(override_votes_down)) {
+                newOverrideVotesDown = null;
+                newBaseVotesDown = null;
+              } else {
+                newOverrideVotesDown = Math.max(0, parseInt(override_votes_down, 10));
+                newBaseVotesDown = realIncDown;
+              }
+            }
+
+            let newDetails = row.details;
+            try {
+              let timelineDetails = row.details ? JSON.parse(row.details) : {};
+              if (errors && Array.isArray(errors)) {
+                timelineDetails.errors = errors.map((errItem, idx) => {
+                  const originalErr = (timelineDetails.errors && timelineDetails.errors[idx]) || {};
+                  return {
+                    timestamp: errItem.timestamp || originalErr.timestamp || new Date().toISOString(),
+                    type: errItem.type || originalErr.type || 'Down',
+                    message: errItem.message || originalErr.message || '',
+                    raw: originalErr.raw || {}
+                  };
                 });
               }
-              newDetails = JSON.stringify(timelineDetails);
-            }
-          } catch (e) {
-            logEvent(`Failed to recalculate details duration: ${e.message}`, "error");
-          }
 
-          db.run(
-            "UPDATE incidents SET start_time = ?, admin_notes = ?, admin_link = ?, admin_link_text = ?, outage_type = ?, details = ?, override_votes_up = ?, override_votes_down = ? WHERE id = ?",
-            [newStartTime, newAdminNotes, newAdminLink, newAdminLinkText, newOutageType, newDetails, newOverrideVotesUp, newOverrideVotesDown, incidentId],
-            (updateErr) => {
-              if (updateErr) {
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: `Update failed: ${updateErr.message}` }));
-                return;
+              if (timelineDetails) {
+                const startMs = new Date(newStartTime).getTime();
+                const endMs = row.end_time ? new Date(row.end_time).getTime() : Date.now();
+                const durationSec = Math.max(0, (endMs - startMs) / 1000);
+                const durationText = formatDuration(durationSec);
+
+                if (timelineDetails.summary) {
+                  timelineDetails.summary = replaceDurationInMessage(timelineDetails.summary, durationText);
+                }
+
+                if (timelineDetails.errors && Array.isArray(timelineDetails.errors)) {
+                  timelineDetails.errors.forEach(err => {
+                    if (err.message) {
+                      err.message = replaceDurationInMessage(err.message, durationText);
+                    }
+                  });
+                }
+                newDetails = JSON.stringify(timelineDetails);
               }
-
-              invalidateCache();
-
-              // If the edited incident is currently the active one, update the currentStatus state in memory
-              if (incidentId === activeIncidentId) {
-                currentStatus.state = newOutageType;
-              }
-
-              logEvent(`Incident #${incidentId} updated manually. Start Time: ${newStartTime}, Type: ${newOutageType}`, "success");
-
-              res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ success: true, message: 'Incident updated successfully.' }));
+            } catch (e) {
+              logEvent(`Failed to recalculate details duration: ${e.message}`, "error");
             }
-          );
+
+            db.run(
+              "UPDATE incidents SET start_time = ?, admin_notes = ?, admin_link = ?, admin_link_text = ?, outage_type = ?, details = ?, override_votes_up = ?, override_votes_down = ?, base_votes_up = ?, base_votes_down = ? WHERE id = ?",
+              [newStartTime, newAdminNotes, newAdminLink, newAdminLinkText, newOutageType, newDetails, newOverrideVotesUp, newOverrideVotesDown, newBaseVotesUp, newBaseVotesDown, incidentId],
+              (updateErr) => {
+                if (updateErr) {
+                  res.writeHead(500, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({ error: `Update failed: ${updateErr.message}` }));
+                  return;
+                }
+
+                invalidateCache();
+
+                // If the edited incident is currently the active one, update the currentStatus state in memory
+                if (incidentId === activeIncidentId) {
+                  currentStatus.state = newOutageType;
+                }
+
+                logEvent(`Incident #${incidentId} updated manually. Start Time: ${newStartTime}, Type: ${newOutageType}`, "success");
+
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, message: 'Incident updated successfully.' }));
+              }
+            );
+          });
         });
 
       } catch (parseErr) {

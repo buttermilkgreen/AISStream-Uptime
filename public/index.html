@@ -302,23 +302,35 @@
   <div id="edit-up-note-modal" class="modal-overlay" style="display: none;">
     <div class="modal-card" style="max-width: 480px;">
       <div class="modal-header">
-        <h3>Add / Edit Operational Note</h3>
+        <h3>Edit Operational Status & Votes</h3>
         <button id="btn-close-edit-up-note" class="btn-close-modal">&times;</button>
       </div>
       <div class="modal-body">
         <p style="font-size: 0.85rem; color: #94a3b8; margin-top: 0; margin-bottom: 1rem;">
-          Add a custom note to the top status card while the service is Operational. This text will clear automatically if an issue occurs.
+          Add a custom note or override vote counts on the top status card while the service is Operational.
         </p>
         <div class="form-group">
           <label for="edit-up-note-text">Custom Note</label>
           <textarea id="edit-up-note-text" placeholder="Enter free text note..." rows="3"
             style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem; resize: vertical; width: 100%; box-sizing: border-box;"></textarea>
         </div>
+        <div style="display: flex; gap: 1rem; width: 100%; margin-top: 1rem;">
+          <div class="form-group" style="flex: 1;">
+            <label for="edit-up-votes-up">Override Up Votes</label>
+            <input type="number" id="edit-up-votes-up" placeholder="Keep original" min="0"
+              style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem; width: 100%; box-sizing: border-box;">
+          </div>
+          <div class="form-group" style="flex: 1;">
+            <label for="edit-up-votes-down">Override Down Votes</label>
+            <input type="number" id="edit-up-votes-down" placeholder="Keep original" min="0"
+              style="background: #0f172a; border: 1px solid #312e81; border-radius: 6px; padding: 0.75rem; color: #f1f5f9; font-family: inherit; font-size: 0.95rem; width: 100%; box-sizing: border-box;">
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
-        <button id="btn-clear-edit-up-note" class="btn" style="background: #ef4444; color: white; margin-right: auto;">Clear Note</button>
+        <button id="btn-clear-edit-up-note" class="btn" style="background: #ef4444; color: white; margin-right: auto;">Clear All</button>
         <button id="btn-cancel-edit-up-note" class="btn" style="background: #475569; color: white;">Cancel</button>
-        <button id="btn-submit-edit-up-note" class="btn" style="background: #10b981; color: white;">Save Note</button>
+        <button id="btn-submit-edit-up-note" class="btn" style="background: #10b981; color: white;">Save Changes</button>
       </div>
     </div>
   </div>

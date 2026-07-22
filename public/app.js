@@ -124,6 +124,8 @@ function replaceDurationInMessage(msg, newDurationText) {
 // Config mapping for status states
 let isAdminVerified = false;
 let currentUpNote = null;
+let currentUpVotesUp = null;
+let currentUpVotesDown = null;
 
 
 const STATE_CONFIGS = {
@@ -331,7 +333,7 @@ const historyContainer = document.getElementById('history-container');
  * @param {object} activeIncident - Current active incident
  * @param {boolean} websocketConnected - Whether websocket is connected
  */
-function updateUI(state, lastChecked, silenceTimeout, activeIncident, websocketConnected, upNote) {
+function updateUI(state, lastChecked, silenceTimeout, activeIncident, websocketConnected, upNote, overrideVotesUp, overrideVotesDown) {
   const config = STATE_CONFIGS[state] || {
     className: 'state-loading',
     statusTitle: 'Checking Status...',
@@ -422,6 +424,12 @@ function updateUI(state, lastChecked, silenceTimeout, activeIncident, websocketC
 
   if (upNote !== undefined) {
     currentUpNote = upNote;
+  }
+  if (overrideVotesUp !== undefined) {
+    currentUpVotesUp = overrideVotesUp;
+  }
+  if (overrideVotesDown !== undefined) {
+    currentUpVotesDown = overrideVotesDown;
   }
 
   if (bannerNotesEl) {
@@ -1009,7 +1017,7 @@ async function fetchStatus() {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     const data = await response.json();
-    updateUI(data.state, data.lastChecked, data.silenceTimeout, data.activeIncident, data.websocketConnected, data.up_note);
+    updateUI(data.state, data.lastChecked, data.silenceTimeout, data.activeIncident, data.websocketConnected, data.up_note, data.override_votes_up, data.override_votes_down);
     renderHeartbeat(data.history);
 
     // Dev HUD visibility
@@ -1092,7 +1100,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Edit Up Note Modal UI bindings
+  // Edit Up Note / Votes Modal UI bindings
   const editUpNoteModal = document.getElementById('edit-up-note-modal');
   const upNoteEditBtn = document.getElementById('status-banner-up-note-edit-btn');
   const closeEditUpNoteBtn = document.getElementById('btn-close-edit-up-note');
@@ -1100,11 +1108,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const clearEditUpNoteBtn = document.getElementById('btn-clear-edit-up-note');
   const submitEditUpNoteBtn = document.getElementById('btn-submit-edit-up-note');
   const editUpNoteText = document.getElementById('edit-up-note-text');
+  const editUpVotesUpInput = document.getElementById('edit-up-votes-up');
+  const editUpVotesDownInput = document.getElementById('edit-up-votes-down');
 
   if (upNoteEditBtn) {
     upNoteEditBtn.addEventListener('click', () => {
       if (editUpNoteText) {
         editUpNoteText.value = currentUpNote || '';
+      }
+      if (editUpVotesUpInput) {
+        editUpVotesUpInput.value = (currentUpVotesUp !== null && currentUpVotesUp !== undefined) ? currentUpVotesUp : '';
+      }
+      if (editUpVotesDownInput) {
+        editUpVotesDownInput.value = (currentUpVotesDown !== null && currentUpVotesDown !== undefined) ? currentUpVotesDown : '';
       }
       if (editUpNoteModal) {
         editUpNoteModal.style.display = 'flex';
@@ -1119,7 +1135,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (closeEditUpNoteBtn) closeEditUpNoteBtn.addEventListener('click', hideUpNoteModal);
   if (cancelEditUpNoteBtn) cancelEditUpNoteBtn.addEventListener('click', hideUpNoteModal);
 
-  async function saveUpNote(noteValue) {
+  async function saveUpNote(noteValue, votesUpVal, votesDownVal) {
     const savedKey = localStorage.getItem('adminApiKey');
     if (!savedKey) {
       alert("Admin authorization required.");
@@ -1133,34 +1149,49 @@ document.addEventListener('DOMContentLoaded', () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${savedKey}`
         },
-        body: JSON.stringify({ up_note: noteValue })
+        body: JSON.stringify({ 
+          up_note: noteValue,
+          override_votes_up: (votesUpVal === '' || votesUpVal === null || votesUpVal === undefined) ? null : parseInt(votesUpVal, 10),
+          override_votes_down: (votesDownVal === '' || votesDownVal === null || votesDownVal === undefined) ? null : parseInt(votesDownVal, 10)
+        })
       });
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        alert(`Failed to save note: ${errData.error || res.statusText}`);
+        alert(`Failed to save settings: ${errData.error || res.statusText}`);
         return;
       }
 
       const data = await res.json();
       currentUpNote = data.up_note;
-      updateUI(currentBannerState, new Date().toISOString(), null, null, true, currentUpNote);
+      currentUpVotesUp = data.override_votes_up !== undefined ? data.override_votes_up : null;
+      currentUpVotesDown = data.override_votes_down !== undefined ? data.override_votes_down : null;
+
+      updateUI(currentBannerState, new Date().toISOString(), null, null, true, currentUpNote, currentUpVotesUp, currentUpVotesDown);
+      if (currentBannerState) {
+        updateVotes(currentBannerState);
+      }
       hideUpNoteModal();
     } catch (e) {
-      alert("Error saving note: " + e.message);
+      alert("Error saving settings: " + e.message);
     }
   }
 
   if (submitEditUpNoteBtn) {
     submitEditUpNoteBtn.addEventListener('click', () => {
       const val = editUpNoteText ? editUpNoteText.value : '';
-      saveUpNote(val);
+      const votesUp = editUpVotesUpInput ? editUpVotesUpInput.value.trim() : '';
+      const votesDown = editUpVotesDownInput ? editUpVotesDownInput.value.trim() : '';
+      saveUpNote(val, votesUp, votesDown);
     });
   }
 
   if (clearEditUpNoteBtn) {
     clearEditUpNoteBtn.addEventListener('click', () => {
-      saveUpNote('');
+      if (editUpNoteText) editUpNoteText.value = '';
+      if (editUpVotesUpInput) editUpVotesUpInput.value = '';
+      if (editUpVotesDownInput) editUpVotesDownInput.value = '';
+      saveUpNote('', '', '');
     });
   }
 
