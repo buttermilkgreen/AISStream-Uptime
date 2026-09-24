@@ -1714,11 +1714,12 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const now = Date.now();
+    const oneYearCutoff = new Date(now - 365 * 24 * 60 * 60 * 1000).toISOString();
 
     db.all(
       "SELECT id, start_time, end_time, outage_type, admin_notes, admin_link, admin_link_text FROM incidents WHERE end_time IS NULL OR end_time >= ?",
-      [cutoffTime],
+      [oneYearCutoff],
       (err, rows) => {
         if (err) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -1727,7 +1728,6 @@ const server = http.createServer((req, res) => {
         }
 
         const slots = [];
-        const now = Date.now();
         const slotDuration = 30 * 60 * 1000; // 30 minutes
         const serverStartMs = new Date(serverStartTime).getTime();
 
@@ -1774,25 +1774,140 @@ const server = http.createServer((req, res) => {
           };
         }
 
-        const payload = JSON.stringify({
-          state: currentStatus.state,
-          lastChecked: currentStatus.lastChecked,
-          lastMessageReceived: currentStatus.lastMessageReceived,
-          websocketConnected: (wsClient && wsClient.readyState === WebSocket.OPEN) || false,
-          history: slots,
-          devMode: isDevMode,
-          simulated: simulatedModeActive,
-          simulatedStale: simulatedStaleActive,
-          silenceTimeout: SILENCE_TIMEOUT,
-          activeIncident: activeIncident,
-          up_note: customUpNote,
-          override_votes_up: customUpVotesUp,
-          override_votes_down: customUpVotesDown
-        });
+        db.get("SELECT MIN(start_time) as earliest FROM incidents", (earErr, earRow) => {
+          const earliestTime = (earRow && earRow.earliest) ? new Date(earRow.earliest).getTime() : now;
+          const monitoredDurationMs = now - earliestTime;
+          const earliestDateStr = new Date(earliestTime).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
-        setCachedResponse('status', payload);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(payload);
+          // Rolling uptime calculation for 24 hours, 30 days, 3 months, 6 months, 1 year
+          const uptimeWindows = [
+            { key: '24h', label: '(24 hours)', durationMs: 24 * 60 * 60 * 1000, name: '24 hours' },
+            { key: '30d', label: '(30 days)', durationMs: 30 * 24 * 60 * 60 * 1000, name: '30 days' },
+            { key: '90d', label: '(3 months)', durationMs: 90 * 24 * 60 * 60 * 1000, name: '3 months' },
+            { key: '180d', label: '(6 months)', durationMs: 180 * 24 * 60 * 60 * 1000, name: '6 months' },
+            { key: '365d', label: '(1 year)', durationMs: 365 * 24 * 60 * 60 * 1000, name: '1 year' }
+          ];
+
+          const uptimeStats = {};
+
+          for (const win of uptimeWindows) {
+            const wStart = now - win.durationMs;
+            const wEnd = now;
+
+            const intervals = [];
+            for (const r of rows) {
+              const incStart = new Date(r.start_time).getTime();
+              const incEnd = r.end_time ? new Date(r.end_time).getTime() : now;
+
+              const s = Math.max(incStart, wStart);
+              const e = Math.min(incEnd, wEnd);
+
+              if (e > s) {
+                intervals.push([s, e]);
+              }
+            }
+
+            // Merge overlapping outage intervals
+            intervals.sort((a, b) => a[0] - b[0]);
+            const merged = [];
+            for (const [s, e] of intervals) {
+              if (!merged.length) {
+                merged.push([s, e]);
+              } else {
+                const last = merged[merged.length - 1];
+                if (s <= last[1]) {
+                  last[1] = Math.max(last[1], e);
+                } else {
+                  merged.push([s, e]);
+                }
+              }
+            }
+
+            const downtimeMs = merged.reduce((acc, [s, e]) => acc + (e - s), 0);
+            const uptimePercentage = Math.max(0, Math.min(100, ((win.durationMs - downtimeMs) / win.durationMs) * 100));
+
+            let calcFormatted;
+            if (downtimeMs === 0 || uptimePercentage >= 100) {
+              calcFormatted = '100%';
+            } else if (uptimePercentage <= 0) {
+              calcFormatted = '0%';
+            } else {
+              let rounded = parseFloat(uptimePercentage.toFixed(2));
+              if (rounded === 100 && uptimePercentage < 100) {
+                rounded = 99.99;
+              }
+              calcFormatted = `${rounded}%`;
+            }
+
+            const hasSufficientData = win.durationMs <= monitoredDurationMs;
+
+            let tooltip;
+            if (hasSufficientData) {
+              const totalMinutes = Math.round(downtimeMs / 60000);
+              let durationText;
+              if (totalMinutes === 0 && downtimeMs > 0) {
+                durationText = 'under 1 minute';
+              } else if (totalMinutes === 0) {
+                durationText = '0 minutes';
+              } else {
+                const days = Math.floor(totalMinutes / (24 * 60));
+                const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+                const minutes = totalMinutes % 60;
+
+                const parts = [];
+                if (days > 0) parts.push(`${days} ${days === 1 ? 'day' : 'days'}`);
+                if (hours > 0) parts.push(`${hours} ${hours === 1 ? 'hour' : 'hours'}`);
+                if (minutes > 0) parts.push(`${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`);
+
+                if (parts.length === 1) {
+                  durationText = parts[0];
+                } else if (parts.length === 2) {
+                  durationText = `${parts[0]} and ${parts[1]}`;
+                } else if (parts.length >= 3) {
+                  durationText = `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+                } else {
+                  durationText = '0 minutes';
+                }
+              }
+              tooltip = `${durationText} downtime over the last ${win.name}`;
+            } else {
+              const matureDate = new Date(earliestTime + win.durationMs);
+              const matureDateStr = matureDate.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+              tooltip = `full ${win.name} history available ${matureDateStr}`;
+            }
+
+            uptimeStats[win.key] = {
+              label: win.label,
+              percentage: uptimePercentage,
+              formatted: hasSufficientData ? calcFormatted : "—",
+              calculatedFormatted: calcFormatted,
+              hasSufficientData: hasSufficientData,
+              downtimeMs: downtimeMs,
+              tooltip: tooltip
+            };
+          }
+
+          const payload = JSON.stringify({
+            state: currentStatus.state,
+            lastChecked: currentStatus.lastChecked,
+            lastMessageReceived: currentStatus.lastMessageReceived,
+            websocketConnected: (wsClient && wsClient.readyState === WebSocket.OPEN) || false,
+            history: slots,
+            uptime_stats: uptimeStats,
+            devMode: isDevMode,
+            simulated: simulatedModeActive,
+            simulatedStale: simulatedStaleActive,
+            silenceTimeout: SILENCE_TIMEOUT,
+            activeIncident: activeIncident,
+            up_note: customUpNote,
+            override_votes_up: customUpVotesUp,
+            override_votes_down: customUpVotesDown
+          });
+
+          setCachedResponse('status', payload);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(payload);
+        });
       }
     );
     return;

@@ -33,7 +33,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
 
   <!-- Stylesheet -->
-  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="style.css?v=6">
 </head>
 
 <body>
@@ -126,6 +126,45 @@
         </div>
         <!-- Heartbeat Container (30-minute interval statuses for the last 24 hours) -->
         <div id="heartbeat-container" class="heartbeat-container"></div>
+
+        <!-- Rolling Uptime Percentages -->
+        <div class="uptime-stats-row" id="uptime-stats-row">
+          <div class="uptime-stat-col" id="stat-col-24h" tabindex="0" role="button" aria-label="Uptime for last 24 hours">
+            <span class="uptime-stat-label">(24 hours)</span>
+            <span class="uptime-stat-value" id="uptime-stat-24h">—</span>
+            <div class="tooltip" id="tooltip-24h">
+              <span class="tooltip-text" id="tooltip-text-24h">0 minutes downtime over the last 24 hours</span>
+            </div>
+          </div>
+          <div class="uptime-stat-col" id="stat-col-30d" tabindex="0" role="button" aria-label="Uptime for last 30 days">
+            <span class="uptime-stat-label">(30 days)</span>
+            <span class="uptime-stat-value" id="uptime-stat-30d">—</span>
+            <div class="tooltip" id="tooltip-30d">
+              <span class="tooltip-text" id="tooltip-text-30d">0 minutes downtime over the last 30 days</span>
+            </div>
+          </div>
+          <div class="uptime-stat-col" id="stat-col-90d" tabindex="0" role="button" aria-label="Uptime for last 3 months">
+            <span class="uptime-stat-label">(3 months)</span>
+            <span class="uptime-stat-value" id="uptime-stat-90d">—</span>
+            <div class="tooltip" id="tooltip-90d">
+              <span class="tooltip-text" id="tooltip-text-90d">Loading downtime...</span>
+            </div>
+          </div>
+          <div class="uptime-stat-col" id="stat-col-180d" tabindex="0" role="button" aria-label="Uptime for last 6 months">
+            <span class="uptime-stat-label">(6 months)</span>
+            <span class="uptime-stat-value" id="uptime-stat-180d">—</span>
+            <div class="tooltip" id="tooltip-180d">
+              <span class="tooltip-text" id="tooltip-text-180d">data available from 10th December 2026</span>
+            </div>
+          </div>
+          <div class="uptime-stat-col" id="stat-col-365d" tabindex="0" role="button" aria-label="Uptime for last 1 year">
+            <span class="uptime-stat-label">(1 year)</span>
+            <span class="uptime-stat-value" id="uptime-stat-365d">—</span>
+            <div class="tooltip" id="tooltip-365d">
+              <span class="tooltip-text" id="tooltip-text-365d">data available from 13th June 2027</span>
+            </div>
+          </div>
+        </div>
 
         <div class="uptime-meta"
           style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
@@ -337,7 +376,7 @@
 
   <!-- Script -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="app.js?v=2"></script>
+  <script src="app.js?v=6"></script>
 </body>
 
 </html>
