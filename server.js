@@ -81,6 +81,14 @@ const AISSTREAM_WS_URL = process.env.AISSTREAM_WS_URL || "wss://stream.aisstream
 const isDevMode = process.env.NODE_ENV === 'DEV' || process.env.DEV === 'true';
 const SILENCE_TIMEOUT = parseInt(process.env.SILENCE_TIMEOUT_SECONDS, 10) || 15;
 const SILENCE_TO_DOWN_TIMEOUT = parseInt(process.env.SILENCE_TO_DOWN_TIMEOUT_SECONDS, 10) || 1800;
+const SILENCE_RESUBSCRIBE_TIMEOUT = process.env.SILENCE_RESUBSCRIBE_TIMEOUT_SECONDS
+  ? parseInt(process.env.SILENCE_RESUBSCRIBE_TIMEOUT_SECONDS, 10)
+  : Math.max(SILENCE_TIMEOUT + 15, 30);
+const SILENCE_RECONNECT_TIMEOUT = process.env.SILENCE_RECONNECT_TIMEOUT_SECONDS
+  ? parseInt(process.env.SILENCE_RECONNECT_TIMEOUT_SECONDS, 10)
+  : Math.max(SILENCE_RESUBSCRIBE_TIMEOUT + 30, 60);
+const WS_PING_INTERVAL = (parseInt(process.env.WS_PING_INTERVAL_SECONDS, 10) || 30) * 1000;
+const WS_PING_TIMEOUT = (parseInt(process.env.WS_PING_TIMEOUT_SECONDS, 10) || 10) * 1000;
 const FLAP_PROTECTION_WINDOW = parseInt(process.env.FLAP_PROTECTION_WINDOW_SECONDS, 10) || 120;
 const RATE_LIMIT_RPM = parseInt(process.env.API_RATE_LIMIT_RPM, 10) || 60;
 const CACHE_TTL_SECONDS = parseInt(process.env.API_CACHE_TTL_SECONDS, 10) || 15;
@@ -1063,6 +1071,7 @@ function updateState(newState, detailsObj = null) {
 let wsClient = null;
 let reconnectTimer = null;
 let silenceCheckInterval = null;
+let pingHeartbeatInterval = null;
 let lastMessageTime = 0;
 let lastSavedTime = 0;
 const lastSeenPath = path.join(dataDir, 'last_seen.txt');
@@ -1087,6 +1096,39 @@ let connectionOpenTime = 0;
 let hasReceivedDataSinceConnect = false;
 let messageCounter = 0;
 let reconnectAttempts = 0;
+let hasAttemptedResubscribe = false;
+let watchdogCycles = 0;
+let isWatchdogReset = false;
+
+/**
+ * Safely terminates a WebSocket client instance
+ */
+function safeTerminateWs(client) {
+  if (!client) return;
+  try {
+    client.terminate();
+  } catch (e) { }
+}
+
+/**
+ * Constructs the standard subscription payload
+ */
+function getSubscriptionPayload() {
+  let boundingBoxes = [[[1.15, 103.6], [1.45, 104.1]]];
+  if (process.env.AISSTREAM_BOUNDING_BOXES) {
+    try {
+      boundingBoxes = JSON.parse(process.env.AISSTREAM_BOUNDING_BOXES);
+    } catch (err) {
+      logEvent(`Failed to parse AISSTREAM_BOUNDING_BOXES: ${err.message}. Using default.`, "warning");
+    }
+  }
+
+  return {
+    APIKey: API_KEY,
+    BoundingBoxes: boundingBoxes,
+    FilterMessageTypes: ["PositionReport"]
+  };
+}
 
 // Periodic 30-second message throughput logger
 setInterval(() => {
@@ -1108,15 +1150,16 @@ function connectAISStream() {
   }
 
   if (wsClient) {
-    try {
-      wsClient.terminate();
-    } catch (e) { }
+    safeTerminateWs(wsClient);
   }
 
   logEvent(`Attempting to connect to ${AISSTREAM_WS_URL}...`, "info");
 
   try {
-    wsClient = new WebSocket(AISSTREAM_WS_URL);
+    wsClient = new WebSocket(AISSTREAM_WS_URL, {
+      handshakeTimeout: 10000
+    });
+    wsClient.isAlive = true;
   } catch (err) {
     logEvent(`Failed to instantiate WebSocket: ${err.message}`, "error");
     updateState("Down", { message: `Failed to instantiate WebSocket: ${err.message}` });
@@ -1128,7 +1171,7 @@ function connectAISStream() {
   const connectionTimeout = setTimeout(() => {
     if (wsClient && wsClient.readyState === WebSocket.CONNECTING) {
       logEvent("Connection attempt timed out.", "warning");
-      wsClient.terminate();
+      safeTerminateWs(wsClient);
     }
   }, 10000);
 
@@ -1136,35 +1179,43 @@ function connectAISStream() {
     clearTimeout(connectionTimeout);
     connectionOpenTime = Date.now();
     hasReceivedDataSinceConnect = false;
+    hasAttemptedResubscribe = false;
     messageCounter = 0;
-    reconnectAttempts = 0;
-    logEvent("WebSocket connection established. Constructing subscription...", "success");
+    wsClient.isAlive = true;
 
-    // Subscription payload with fallback default (Singapore Strait)
-    let boundingBoxes = [[[1.15, 103.6], [1.45, 104.1]]];
-    if (process.env.AISSTREAM_BOUNDING_BOXES) {
-      try {
-        boundingBoxes = JSON.parse(process.env.AISSTREAM_BOUNDING_BOXES);
-      } catch (err) {
-        logEvent(`Failed to parse AISSTREAM_BOUNDING_BOXES: ${err.message}. Using default.`, "warning");
-      }
+    // Enable TCP keep-alive on underlying socket if available
+    if (wsClient._socket && typeof wsClient._socket.setKeepAlive === 'function') {
+      wsClient._socket.setKeepAlive(true, 15000);
     }
 
-    logEvent(`Subscription settings: BoundingBoxes=${JSON.stringify(boundingBoxes)} Filters=["PositionReport"]`, "info");
+    logEvent("WebSocket connection established. Constructing subscription...", "success");
 
-    const subscription = {
-      APIKey: API_KEY,
-      BoundingBoxes: boundingBoxes,
-      FilterMessageTypes: ["PositionReport"]
-    };
+    const subscription = getSubscriptionPayload();
+    logEvent(`Subscription settings: BoundingBoxes=${JSON.stringify(subscription.BoundingBoxes)} Filters=${JSON.stringify(subscription.FilterMessageTypes)}`, "info");
 
-    wsClient.send(JSON.stringify(subscription));
-    logEvent("Subscription payload sent.", "info");
+    try {
+      wsClient.send(JSON.stringify(subscription));
+      logEvent("Subscription payload sent.", "info");
+    } catch (err) {
+      logEvent(`Failed to send subscription payload: ${err.message}`, "error");
+    }
+  });
+
+  wsClient.on('pong', () => {
+    wsClient.isAlive = true;
+  });
+
+  wsClient.on('ping', () => {
+    wsClient.isAlive = true;
+    try {
+      wsClient.pong();
+    } catch (e) { }
   });
 
   wsClient.on('message', (data) => {
     if (simulatedModeActive) return;
     messageCounter++;
+    wsClient.isAlive = true;
     lastMessageTime = Date.now();
     currentStatus.lastMessageReceived = new Date().toISOString();
 
@@ -1184,6 +1235,9 @@ function connectAISStream() {
 
     if (!hasReceivedDataSinceConnect) {
       hasReceivedDataSinceConnect = true;
+      hasAttemptedResubscribe = false;
+      watchdogCycles = 0;
+      reconnectAttempts = 0;
       logEvent("Receiving active live data stream!", "success");
     }
 
@@ -1201,12 +1255,20 @@ function connectAISStream() {
 
   wsClient.on('close', (code, reason) => {
     clearTimeout(connectionTimeout);
-    const reasonStr = reason.toString() || 'None';
+    const reasonStr = (reason && reason.toString()) || 'None';
     logEvent(`WebSocket connection closed. Code: ${code}, Reason: ${reasonStr}`, "warning");
 
     if (simulatedModeActive) {
       lastSocketError = null;
       scheduleReconnect();
+      return;
+    }
+
+    if (isWatchdogReset) {
+      isWatchdogReset = false;
+      lastSocketError = null;
+      logEvent("Watchdog socket recycle complete. Reconnecting with rapid retry...", "info");
+      scheduleReconnect(2000);
       return;
     }
 
@@ -1277,9 +1339,9 @@ function scheduleReconnect(customDelayMs = null) {
   let delayMs = Math.round(cappedDelay * jitterFactor);
   delayMs = Math.max(delayMs, RECONNECT_MIN_DELAY);
 
-  // If a custom minimum delay is provided (e.g. rate limit backoff), respect the larger delay
+  // If a custom minimum delay is provided (e.g. rate limit backoff or watchdog rapid retry), respect it
   if (customDelayMs !== null) {
-    delayMs = Math.max(delayMs, customDelayMs);
+    delayMs = customDelayMs;
   }
 
   const seconds = (delayMs / 1000).toFixed(1);
@@ -1288,8 +1350,22 @@ function scheduleReconnect(customDelayMs = null) {
 }
 
 /**
- * Timer to detect "Silent Failure" state.
- * Runs every 2 seconds. If connected but no message arrived in SILENCE_TIMEOUT seconds, trigger Silent Failure.
+ * Dynamic calculation of silence reconnect timeout with progressive backoff for prolonged outages.
+ */
+function getEffectiveSilenceReconnectTimeout() {
+  if (watchdogCycles <= 1) {
+    return SILENCE_RECONNECT_TIMEOUT;
+  }
+  // Exponential backoff capped at 300 seconds (5 minutes)
+  return Math.min(Math.round(SILENCE_RECONNECT_TIMEOUT * Math.pow(1.5, watchdogCycles - 1)), 300);
+}
+
+/**
+ * Timer to detect "Silent Failure" state and initiate self-healing.
+ * Runs every 2 seconds. If connected but no message arrived in SILENCE_TIMEOUT seconds:
+ * 1. Flags Silent Failure.
+ * 2. Attempts in-place re-subscription if silence exceeds SILENCE_RESUBSCRIBE_TIMEOUT.
+ * 3. Actively terminates zombie socket and reconnects if silence exceeds SILENCE_RECONNECT_TIMEOUT.
  */
 function startSilenceCheck() {
   if (silenceCheckInterval) clearInterval(silenceCheckInterval);
@@ -1331,9 +1407,57 @@ function startSilenceCheck() {
             }
           });
         }
+
+        // 1. In-place re-subscription refresh
+        if (secondsSinceLastMessage >= SILENCE_RESUBSCRIBE_TIMEOUT && !hasAttemptedResubscribe) {
+          hasAttemptedResubscribe = true;
+          logEvent(`Stream silent for ${Math.round(secondsSinceLastMessage)}s. Re-sending subscription payload to refresh upstream session...`, "warning");
+          try {
+            const subscription = getSubscriptionPayload();
+            wsClient.send(JSON.stringify(subscription));
+          } catch (err) {
+            logEvent(`Failed to re-send subscription: ${err.message}`, "error");
+          }
+        }
+
+        // 2. Watchdog auto-recovery: Terminate zombie socket and cycle connection
+        const effectiveReconnectTimeout = getEffectiveSilenceReconnectTimeout();
+        if (secondsSinceLastMessage >= effectiveReconnectTimeout) {
+          logEvent(`Silent Failure persisted for ${friendlyDuration} (exceeded recovery threshold of ${effectiveReconnectTimeout}s). Proactively cycling zombie socket to self-heal...`, "warning");
+          isWatchdogReset = true;
+          watchdogCycles++;
+          safeTerminateWs(wsClient);
+          return;
+        }
       }
     }
   }, 2000);
+}
+
+/**
+ * Starts periodic WebSocket ping/pong heartbeat check.
+ * Sends ping frames to verify connection liveness and prevent NAT/firewall timeouts.
+ */
+function startPingHeartbeat() {
+  if (pingHeartbeatInterval) clearInterval(pingHeartbeatInterval);
+  pingHeartbeatInterval = setInterval(() => {
+    if (simulatedModeActive) return;
+    if (wsClient && wsClient.readyState === WebSocket.OPEN) {
+      if (wsClient.isAlive === false) {
+        logEvent(`WebSocket heartbeat timeout: no pong received within ${WS_PING_INTERVAL / 1000}s. Terminating unresponsive socket.`, "warning");
+        safeTerminateWs(wsClient);
+        return;
+      }
+
+      wsClient.isAlive = false;
+      try {
+        wsClient.ping();
+      } catch (err) {
+        logEvent(`Failed to send WebSocket ping frame: ${err.message}`, "warning");
+        safeTerminateWs(wsClient);
+      }
+    }
+  }, WS_PING_INTERVAL);
 }
 
 /**
@@ -1366,6 +1490,7 @@ function pruneApiLogs() {
 // Start polling checks
 connectAISStream();
 startSilenceCheck();
+startPingHeartbeat();
 pruneApiLogs();
 setInterval(pruneApiLogs, 24 * 60 * 60 * 1000); // Clean once a day
 

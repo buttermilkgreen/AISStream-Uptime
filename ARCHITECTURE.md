@@ -69,27 +69,38 @@ To prevent creating separate, fragmented incident records when a connection fluc
 2. If that incident was resolved **less than 120 seconds ago**, the server deletes the resolution timestamp (re-opens the incident) and appends the new failure details to its existing timeline events.
 3. If the server transitions *directly* between different failure states (e.g. `Down` -> `Auth Error` -> `Silent Failure`), the active incident's database type is updated to `Service Outage` while retaining the single continuous incident entry.
 
-### 2.3 Silent Failure In-Place Updates, Escalation & Resolution Formatting
+### 2.3 Silent Failure In-Place Updates, Self-Healing Watchdog & Escalation
 To prevent timeline database bloat from polling checks that run every 2 seconds during a long silent failure:
 - **In-Place Updates**: If consecutive failures are of type `Silent Failure`, the backend updates the existing timeline entry in-place instead of appending a new object.
-- **Escalation**: If the silent failure continues for longer than `SILENCE_TO_DOWN_TIMEOUT_SECONDS` (defaults to 30 minutes / 1800s), the system automatically updates the incident to a full `"Down"` state, documenting that the connection remains active but no vessel data has been received for the duration.
+- **In-Place Subscription Refresh**: If the stream remains silent beyond `SILENCE_RESUBSCRIBE_TIMEOUT_SECONDS` (defaults to 30s), the daemon re-transmits the subscription JSON payload over the existing connection in case upstream dropped the session mapping.
+- **Self-Healing Watchdog**: If silence continues past `SILENCE_RECONNECT_TIMEOUT_SECONDS` (defaults to 60s), the monitor actively terminates the suspected zombie socket (`wsClient.terminate()`) and triggers a rapid reconnect (2s delay). If upstream remains silent across cycles, backoff scales gently (up to 5m) to avoid hammering the provider.
+- **Escalation**: If the silent failure continues for longer than `SILENCE_TO_DOWN_TIMEOUT_SECONDS` (defaults to 30 minutes / 1800s), the system automatically escalates the incident to `Service Outage`, documenting that the connection remains active but no vessel data has been received for the duration.
 - **Ongoing State**: During the outage, the database record reads `"Connection established but no ships received for [Duration]"` using a friendly formatted description.
 - **Resolved State**: When the connection resumes, the backend calculates the exact outage duration and formats it dynamically (seconds, minutes/seconds, or hours/minutes), rewriting the final database summary and matching timeline node to `"No message received for [duration]"`.
 
-### 2.4 Rate Limiting & Response Caching
+### 2.4 Connection Keepalive & Heartbeat
+To prevent intermediate NAT/firewall tables from silently killing idle TCP connections (zombie sockets):
+* **WebSocket Ping / Pong**: The daemon sends standard WebSocket protocol `ping` frames every `WS_PING_INTERVAL_SECONDS` (default 30s). If no pong is received before the next cycle, the socket is treated as dead and forcibly terminated to trigger reconnection.
+* **TCP Keepalive**: Enables OS-level TCP keepalive probes (`setKeepAlive(true, 15000)`) on the underlying network socket.
+
+### 2.5 Rate Limiting & Response Caching
 To protect resource-constrained servers (such as a home lab environment) from abuse and performance bottlenecks, the backend implements:
 * **IP-based Rate Limiting**: Tracks incoming requests per IP address in an in-memory sliding window. If an IP exceeds `API_RATE_LIMIT_RPM` within a 1-minute period, it is throttled with an `HTTP 429 Too Many Requests` status code. Throttling is *only* applied to `/api/v1/...` routes; static files (HTML, CSS, JS) remain unthrottled.
 * **In-Memory Caching**: Caches JSON responses for resource-heavy endpoints (`GET /api/v1/status` and `GET /api/v1/incidents`) for a configurable duration (`API_CACHE_TTL_SECONDS`). Caches are cleared instantly upon state transitions or new incident records (including consensus votes) to ensure users always receive accurate real-time data when a status change happens.
 * **WebSocket Connection Rate-Limit Backoff**: If the background daemon encounters a `429` rate limit or connection error from `stream.aisstream.io`, it will automatically back off the reconnection timer for 90 seconds. This prevents aggressive reconnect attempts from sustaining an API-key or IP-level connection block.
 
 
-### 2.5 Environment Configuration
+### 2.6 Environment Configuration
 The backend loads configuration settings from a local `.env` file or from the environment:
 * **`AISSTREAM_API_KEY`**: The API key required to authenticate with the AISStream WebSocket server.
 * **`PORT`**: The local port number on which the HTTP server listens (defaults to `3000`).
 * **`NODE_ENV` / `DEV`**: Setting `NODE_ENV=DEV` or `DEV=true` activates local developer simulation features.
 * **`AISSTREAM_BOUNDING_BOXES`**: A JSON string array defining geographical bounding boxes to subscribe to (defaults to Singapore Strait: `[[[1.15, 103.6], [1.45, 104.1]]]`).
 * **`SILENCE_TIMEOUT_SECONDS`**: Inactivity period in seconds before a connected stream is marked as a `Silent Failure` (defaults to `15`).
+* **`SILENCE_RESUBSCRIBE_TIMEOUT_SECONDS`**: Inactivity period in seconds before attempting an in-place subscription refresh payload (defaults to `30`).
+* **`SILENCE_RECONNECT_TIMEOUT_SECONDS`**: Prolonged silence limit in seconds before watchdog actively terminates and reconnects the socket (defaults to `60`).
+* **`WS_PING_INTERVAL_SECONDS`**: Interval in seconds between WebSocket ping keepalive probes (defaults to `30`).
+* **`WS_PING_TIMEOUT_SECONDS`**: Response timeout in seconds for ping keepalives (defaults to `10`).
 * **`SILENCE_TO_DOWN_TIMEOUT_SECONDS`**: Interval in seconds before escalating a `Silent Failure` to `Down` / `Service Outage` (defaults to `1800` / 30 minutes).
 * **`FLAP_PROTECTION_WINDOW_SECONDS`**: Grace period in seconds to merge rapid successive failure drops into a single continuous incident (defaults to `120`).
 * **`API_RATE_LIMIT_RPM`**: Maximum requests per minute allowed per client IP (defaults to `60`).
